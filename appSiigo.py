@@ -151,16 +151,7 @@ def procesar_excel_para_streamlit(uploaded_file):
 st.set_page_config(page_title="Procesador de Excel Automático", layout="centered")
 
 st.title("📊 Procesador de Archivos Excel")
-st.markdown("---")
-st.write(
-    """
-    Sube tu archivo Excel para realizar las siguientes transformaciones automáticas:
-    1.  Eliminar filas con celdas vacías en la columna **"Tipo clasificación"**.
-    2.  Eliminar columnas específicas: **"Nombre tercero"**, **"Tipo clasificación"**, **"Código"**, **"Consecutivo"**, **"Tipo transacción"**.
-    3.  Actualizar la columna **"Total"** multiplicando **"Cantidad"** por **"Valor unitario"**.
-    4.  Rellenar las celdas vacías o con **0** en la columna **"Tasa de cambio"** buscando la **TRM** para la fecha de **"Fecha elaboración"** a través de la API de Datos Abiertos Colombia.
-    """
-)
+
 st.markdown("---")
 
 uploaded_file = st.file_uploader(
@@ -198,7 +189,5 @@ if uploaded_file is not None:
             )
             st.info("Tu archivo ha sido procesado y está listo para descargar.")
 else:
-    st.info("Por favor, sube un archivo Excel para comenzar.")
+    st.info("Por favor, sube el archivo Excel para comenzar.")
 
-st.markdown("---")
-st.caption("Desarrollado con Streamlit y Pandas.")
