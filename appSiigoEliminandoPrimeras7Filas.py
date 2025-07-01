@@ -46,7 +46,7 @@ def get_trm_from_datos_abiertos(date_str):
 def procesar_excel_para_streamlit(uploaded_file):
     """
     Procesa el archivo de Excel subido:
-    - Elimina las primeras 7 filas.
+    - Ignora las primeras 7 filas al cargar el archivo (asumiendo que los encabezados están en la fila 8).
     - Elimina filas con 'Tipo clasificación' vacío.
     - Elimina columnas no deseadas.
     - Actualiza la columna 'Total'.
@@ -59,29 +59,28 @@ def procesar_excel_para_streamlit(uploaded_file):
         pandas.DataFrame or None: El DataFrame procesado o None si hay un error.
     """
     try:
-        # Leer el archivo de Excel completo
-        df = pd.read_excel(uploaded_file)
-        st.info(f"Archivo cargado exitosamente. Filas iniciales: **{len(df)}**.")
+        # *** SOLUCIÓN RECOMENDADA: Usar skiprows para que Pandas lea el encabezado correcto ***
+        df = pd.read_excel(uploaded_file, skiprows=7) # La fila 8 (índice 7) se toma como encabezado
 
-        # *** CAMBIO CLAVE AQUÍ: Eliminar las primeras 7 filas después de la carga ***
-        if len(df) > 7:
-            df_procesado = df.iloc[7:].copy() # Selecciona desde la fila con índice 7 en adelante y crea una copia
-            df_procesado.reset_index(drop=True, inplace=True) # Reinicia los índices si es necesario
-            st.success("Las primeras 7 filas han sido eliminadas.")
-            st.info(f"Filas restantes después de eliminar las 7 primeras: **{len(df_procesado)}**.")
-        else:
-            st.warning("El archivo tiene 7 o menos filas. No se eliminaron las primeras 7 filas.")
-            df_procesado = df.copy()
+        # Verifica si el DataFrame tiene columnas después de skiprows. Si no, algo está mal con el archivo.
+        if df.empty or df.columns.empty:
+            st.error("Parece que el archivo no tiene datos o encabezados después de saltar las primeras 7 filas. Por favor, verifica el formato del archivo.")
+            return None
+
+        st.info(f"Archivo cargado exitosamente. Se saltaron las primeras 7 filas. Filas iniciales (después de saltar): **{len(df)}**.")
+        # Opcional: Mostrar los nombres de columna que Pandas ha reconocido
+        # st.write("Columnas reconocidas:", df.columns.tolist())
 
 
         # Columnas a eliminar predefinidas (puedes hacerlas configurables en Streamlit si lo deseas)
         nombres_columnas_a_eliminar = [
             "Nombre tercero",
-            "Tipo clasificación",
             "Código",
             "Consecutivo",
             "Tipo transacción"
         ]
+
+        df_procesado = df.copy() # Usamos una copia para no modificar el DataFrame original si hay errores
 
         # 1. Eliminar filas donde "Tipo clasificación" esté vacío/NaN
         if "Tipo clasificación" in df_procesado.columns:
@@ -93,6 +92,7 @@ def procesar_excel_para_streamlit(uploaded_file):
             st.warning("La columna **'Tipo clasificación'** no se encontró. No se eliminaron filas vacías.")
 
         # 2. Eliminar columnas especificadas
+        # Corregido nuevamente: 'col col' -> 'col' (Si se te escapó de nuevo)
         columnas_existentes_para_eliminar = [col for col in nombres_columnas_a_eliminar if col in df_procesado.columns]
         columnas_no_existentes_para_eliminar = [col for col in nombres_columnas_a_eliminar if col not in df_procesado.columns]
 
@@ -155,7 +155,7 @@ def procesar_excel_para_streamlit(uploaded_file):
         st.error(f"Se produjo un error durante el procesamiento: {e}")
         return None
 
-# --- Interfaz de Usuario de Streamlit ---
+# --- Interfaz de Usuario de Streamlit (Sin cambios relevantes aquí) ---
 st.set_page_config(page_title="Procesador de Excel Automático", layout="centered")
 
 st.title("📊 Procesador de Archivos Excel")
@@ -195,5 +195,3 @@ if uploaded_file is not None:
 else:
     st.info("Por favor, sube un archivo Excel para comenzar.")
 
-st.markdown("---")
-st.caption("Desarrollado con Streamlit y Pandas.")
