@@ -5,44 +5,52 @@ from datetime import datetime
 import time
 import io
 
-# --- Tu función para obtener la TRM (sin cambios mayores) ---
-@st.cache_data(ttl=3600) # Almacena en caché los resultados de la TRM por 1 hora para evitar peticiones repetidas
-def get_trm_from_datos_abiertos(date_str):
+# --- FUNCIÓN MEJORADA PARA OBTENER LA TRM ---
+@st.cache_data(ttl=3600) # Almacena en caché los resultados de la TRM por 1 hora
+def get_trm_from_datos_abiertos(target_date_str):
     """
-    Consulta la TRM desde la API de Datos Abiertos Colombia (Socrata).
+    Consulta la TRM desde la API de Datos Abiertos Colombia (Socrata),
+    manejando fines de semana y festivos, buscando la TRM vigente en o antes de la fecha.
 
     Args:
-        date_str (str): La fecha en formato 'YYYY-MM-DD'.
+        target_date_str (str): La fecha para la cual se desea consultar la TRM, en formato 'YYYY-MM-DD'.
 
     Returns:
         float or None: El valor de la TRM, o None si no se encuentra o hay un error.
     """
     BASE_URL = "https://www.datos.gov.co/resource/mcec-87by.json"
-    params = {
-        "vigenciadesde": f"{date_str}T00:00:00.000"
-    }
 
     try:
-        response = requests.get(BASE_URL, params=params, timeout=10)
-        response.raise_for_status()
+        # Construir la consulta Socrata Query Language (SoQL)
+        # $where: vigenciadesde <= 'fecha_solicitada' (busca TRM vigente en o antes de la fecha)
+        # $order: vigenciadesde DESC (para obtener la más reciente primero)
+        # $limit: 1 (para obtener solo un resultado)
+        soql_query = f"$where=vigenciadesde <= '{target_date_str}T23:59:59.000'&$order=vigenciadesde DESC&$limit=1"
+
+        response = requests.get(f"{BASE_URL}?{soql_query}", timeout=10) # Añadir timeout
+        response.raise_for_status() # Lanza una excepción para códigos de estado HTTP 4xx/5xx
 
         data = response.json()
 
         if data:
-            return float(data[0].get('valor'))
+            # Si hay datos, el primer elemento es la TRM más reciente y vigente para esa fecha o anterior
+            trm_data = data[0]
+            return float(trm_data.get('valor')) # Devuelve solo el valor float
         else:
-            return None
+            # st.warning(f"No se encontró TRM vigente para la fecha {target_date_str} o anterior en Datos Abiertos.")
+            return None # Si no hay datos, devuelve None
+
     except requests.exceptions.RequestException as e:
-        # st.warning(f"Error de conexión o HTTP al consultar Datos Abiertos para {date_str}: {e}")
+        # st.error(f"Error de conexión o HTTP al consultar Datos Abiertos para {target_date_str}: {e}")
         return None
     except (ValueError, IndexError, TypeError) as e:
-        # st.warning(f"Error al parsear o acceder a los datos de la TRM para {date_str}: {e}")
+        # st.error(f"Error al parsear o acceder a los datos de la TRM para {target_date_str}: {e}")
         return None
     except Exception as e:
-        # st.warning(f"Error inesperado al consultar Datos Abiertos para {date_str}: {e}")
+        # st.error(f"Error inesperado al consultar Datos Abiertos para {target_date_str}: {e}")
         return None
 
-# --- Función Principal de Procesamiento (adaptada para Streamlit) ---
+# --- Función Principal de Procesamiento ---
 def procesar_excel_para_streamlit(uploaded_file):
     """
     Procesa el archivo de Excel subido:
@@ -59,20 +67,17 @@ def procesar_excel_para_streamlit(uploaded_file):
         pandas.DataFrame or None: El DataFrame procesado o None si hay un error.
     """
     try:
-        # *** SOLUCIÓN RECOMENDADA: Usar skiprows para que Pandas lea el encabezado correcto ***
+        # Usar skiprows para que Pandas lea el encabezado correcto
         df = pd.read_excel(uploaded_file, skiprows=7) # La fila 8 (índice 7) se toma como encabezado
 
-        # Verifica si el DataFrame tiene columnas después de skiprows. Si no, algo está mal con el archivo.
+        # Verifica si el DataFrame tiene columnas después de skiprows.
         if df.empty or df.columns.empty:
             st.error("Parece que el archivo no tiene datos o encabezados después de saltar las primeras 7 filas. Por favor, verifica el formato del archivo.")
             return None
 
         st.info(f"Archivo cargado exitosamente. Se saltaron las primeras 7 filas. Filas iniciales (después de saltar): **{len(df)}**.")
-        # Opcional: Mostrar los nombres de columna que Pandas ha reconocido
-        # st.write("Columnas reconocidas:", df.columns.tolist())
 
-
-        # Columnas a eliminar predefinidas (puedes hacerlas configurables en Streamlit si lo deseas)
+        # Columnas a eliminar predefinidas
         nombres_columnas_a_eliminar = [
             "Nombre tercero",
             "Código",
@@ -80,7 +85,7 @@ def procesar_excel_para_streamlit(uploaded_file):
             "Tipo transacción"
         ]
 
-        df_procesado = df.copy() # Usamos una copia para no modificar el DataFrame original si hay errores
+        df_procesado = df.copy()
 
         # 1. Eliminar filas donde "Tipo clasificación" esté vacío/NaN
         if "Tipo clasificación" in df_procesado.columns:
@@ -92,13 +97,12 @@ def procesar_excel_para_streamlit(uploaded_file):
             st.warning("La columna **'Tipo clasificación'** no se encontró. No se eliminaron filas vacías.")
 
         # 2. Eliminar columnas especificadas
-        # Corregido nuevamente: 'col col' -> 'col' (Si se te escapó de nuevo)
         columnas_existentes_para_eliminar = [col for col in nombres_columnas_a_eliminar if col in df_procesado.columns]
         columnas_no_existentes_para_eliminar = [col for col in nombres_columnas_a_eliminar if col not in df_procesado.columns]
 
         if columnas_existentes_para_eliminar:
             df_procesado.drop(columns=columnas_existentes_para_eliminar, inplace=True)
-            st.success(f"Columnas eliminadas: **{', '.join(columnas_existentes_para_eliminar)}**.")
+            st.success(f"Columnas eliminadas: **{', '.join(columnas_existentes_para_eliminar)}**.") # Corrección de un posible typo aquí
         else:
             st.info("Ninguna de las columnas especificadas para eliminar se encontró. No se eliminaron columnas.")
 
@@ -121,30 +125,38 @@ def procesar_excel_para_streamlit(uploaded_file):
             
             df_procesado['Fecha elaboración_dt'] = pd.to_datetime(df_procesado['Fecha elaboración'], format='%d/%m/%Y', errors='coerce')
 
-            trm_placeholder = st.empty()
-            total_trm_consultas = 0
-            
+            trm_progress_bar = st.progress(0) # Barra de progreso
+            trm_placeholder = st.empty() # Placeholder para mensajes individuales
+            total_trm_consultas_necesarias = df_procesado[(pd.isna(df_procesado["Tasa de cambio"]) | (df_procesado["Tasa de cambio"] == 0)) & pd.notna(df_procesado["Fecha elaboración_dt"])].shape[0]
+            consultas_realizadas = 0
+
             for index, row in df_procesado.iterrows():
                 tasa_actual = row["Tasa de cambio"]
                 fecha_elaboracion_dt = row["Fecha elaboración_dt"]
 
                 if (pd.isna(tasa_actual) or tasa_actual == 0) and pd.notna(fecha_elaboracion_dt):
                     fecha_str_api = fecha_elaboracion_dt.strftime('%Y-%m-%d')
-                    trm_placeholder.text(f"Buscando TRM para la fecha: {fecha_str_api} (Fila {index})...")
+                    trm_placeholder.text(f"Buscando TRM para la fecha: {fecha_str_api} (Fila {index+2} de Excel original)...") # +2 para mostrar fila real
                     trm_valor = get_trm_from_datos_abiertos(fecha_str_api)
-                    total_trm_consultas +=1
+                    consultas_realizadas += 1
+                    
+                    # Actualizar barra de progreso
+                    progress_percentage = int((consultas_realizadas / total_trm_consultas_necesarias) * 100) if total_trm_consultas_necesarias > 0 else 100
+                    trm_progress_bar.progress(progress_percentage)
+
 
                     if trm_valor is not None:
                         df_procesado.at[index, "Tasa de cambio"] = trm_valor
-                        trm_placeholder.text(f"TRM encontrada: {trm_valor} para {fecha_str_api}. (Fila {index})")
+                        trm_placeholder.text(f"TRM encontrada: {trm_valor} para {fecha_str_api}. (Fila {index+2} de Excel original)")
                     else:
-                        trm_placeholder.warning(f"No se pudo obtener TRM para {fecha_str_api}. La celda permanecerá sin cambios.")
+                        trm_placeholder.warning(f"No se pudo obtener TRM para {fecha_str_api}. La celda permanecerá sin cambios. (Fila {index+2} de Excel original)")
                     
                     time.sleep(0.05)
 
-            trm_placeholder.empty()
+            trm_placeholder.empty() # Limpiar el placeholder de TRM al finalizar
+            trm_progress_bar.empty() # Eliminar la barra de progreso
             df_procesado.drop(columns=['Fecha elaboración_dt'], inplace=True)
-            st.success(f"Proceso de rellenado de **'Tasa de cambio'** completado. Total de consultas TRM: **{total_trm_consultas}**.")
+            st.success(f"Proceso de rellenado de **'Tasa de cambio'** completado. Total de consultas TRM: **{consultas_realizadas}**.")
         else:
             st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Fecha elaboración'**. No se buscó la TRM.")
 
@@ -155,7 +167,7 @@ def procesar_excel_para_streamlit(uploaded_file):
         st.error(f"Se produjo un error durante el procesamiento: {e}")
         return None
 
-# --- Interfaz de Usuario de Streamlit (Sin cambios relevantes aquí) ---
+# --- Interfaz de Usuario de Streamlit ---
 st.set_page_config(page_title="Procesador de Excel Automático", layout="centered")
 
 st.title("📊 Procesador de Archivos Excel")
@@ -194,4 +206,5 @@ if uploaded_file is not None:
             st.info("Tu archivo ha sido procesado y está listo para descargar.")
 else:
     st.info("Por favor, sube un archivo Excel para comenzar.")
+
 
