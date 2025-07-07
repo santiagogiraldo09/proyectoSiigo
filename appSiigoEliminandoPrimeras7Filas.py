@@ -58,7 +58,7 @@ def procesar_excel_para_streamlit(uploaded_file):
     - Elimina filas con 'Tipo clasificación' vacío.
     - Elimina columnas no deseadas.
     - Actualiza la columna 'Total'.
-    - Rellena 'Tasa de cambio' con TRM de API.
+    - Rellena 'Tasa de cambio' con TRM de API bajo condiciones específicas.
 
     Args:
         uploaded_file (streamlit.UploadedFile): El archivo Excel subido por el usuario.
@@ -102,7 +102,7 @@ def procesar_excel_para_streamlit(uploaded_file):
 
         if columnas_existentes_para_eliminar:
             df_procesado.drop(columns=columnas_existentes_para_eliminar, inplace=True)
-            st.success(f"Columnas eliminadas: **{', '.join(columnas_existentes_para_eliminar)}**.") # Corrección de un posible typo aquí
+            st.success(f"Columnas eliminadas: **{', '.join(columnas_existentes_para_eliminar)}**.")
         else:
             st.info("Ninguna de las columnas especificadas para eliminar se encontró. No se eliminaron columnas.")
 
@@ -120,30 +120,45 @@ def procesar_excel_para_streamlit(uploaded_file):
             st.warning("Advertencia: No se pudieron encontrar las columnas **'Cantidad'**, **'Valor unitario'** y/o **'Total'**. La columna **'Total'** no se actualizó.")
 
         # 4. Rellenar celdas vacías o con 0 en "Tasa de cambio" con la TRM
-        if "Tasa de cambio" in df_procesado.columns and "Fecha elaboración" in df_procesado.columns:
+        if "Tasa de cambio" in df_procesado.columns and "Fecha elaboración" in df_procesado.columns and "Número comprobante" in df_procesado.columns:
             st.info("Iniciando el proceso de rellenado de **'Tasa de cambio'** con TRM desde Datos Abiertos...")
             
             df_procesado['Fecha elaboración_dt'] = pd.to_datetime(df_procesado['Fecha elaboración'], format='%d/%m/%Y', errors='coerce')
 
-            trm_progress_bar = st.progress(0) # Barra de progreso
-            trm_placeholder = st.empty() # Placeholder para mensajes individuales
-            total_trm_consultas_necesarias = df_procesado[(pd.isna(df_procesado["Tasa de cambio"]) | (df_procesado["Tasa de cambio"] == 0)) & pd.notna(df_procesado["Fecha elaboración_dt"])].shape[0]
+            trm_progress_bar = st.progress(0)
+            trm_placeholder = st.empty()
+            
+            # Identificar las filas que necesitan consulta de TRM
+            filas_a_consultar = df_procesado[
+                (pd.isna(df_procesado["Tasa de cambio"]) | (df_procesado["Tasa de cambio"] == 0)) &
+                pd.notna(df_procesado["Fecha elaboración_dt"]) &
+                (df_procesado["Número comprobante"].astype(str).str.startswith("FV", na=False))
+            ]
+            total_trm_consultas_necesarias = len(filas_a_consultar)
             consultas_realizadas = 0
 
             for index, row in df_procesado.iterrows():
                 tasa_actual = row["Tasa de cambio"]
                 fecha_elaboracion_dt = row["Fecha elaboración_dt"]
+                numero_comprobante = row["Número comprobante"]
 
-                if (pd.isna(tasa_actual) or tasa_actual == 0) and pd.notna(fecha_elaboracion_dt):
+                # --- INICIO DE LA MODIFICACIÓN ---
+                # Se añade la tercera condición: str(numero_comprobante).startswith("FV")
+                # Esto convierte el valor a texto de forma segura y comprueba si empieza con "FV"
+                condicion_tasa = pd.isna(tasa_actual) or tasa_actual == 0
+                condicion_fecha = pd.notna(fecha_elaboracion_dt)
+                condicion_comprobante = str(numero_comprobante).startswith("FV")
+
+                if condicion_tasa and condicion_fecha and condicion_comprobante:
+                # --- FIN DE LA MODIFICACIÓN ---
                     fecha_str_api = fecha_elaboracion_dt.strftime('%Y-%m-%d')
-                    trm_placeholder.text(f"Buscando TRM para la fecha: {fecha_str_api} (Fila {index+2} de Excel original)...") # +2 para mostrar fila real
+                    trm_placeholder.text(f"Buscando TRM para la fecha: {fecha_str_api} (Fila {index+2} de Excel original)...")
                     trm_valor = get_trm_from_datos_abiertos(fecha_str_api)
                     consultas_realizadas += 1
                     
-                    # Actualizar barra de progreso
-                    progress_percentage = int((consultas_realizadas / total_trm_consultas_necesarias) * 100) if total_trm_consultas_necesarias > 0 else 100
-                    trm_progress_bar.progress(progress_percentage)
-
+                    if total_trm_consultas_necesarias > 0:
+                        progress_percentage = int((consultas_realizadas / total_trm_consultas_necesarias) * 100)
+                        trm_progress_bar.progress(progress_percentage)
 
                     if trm_valor is not None:
                         df_procesado.at[index, "Tasa de cambio"] = trm_valor
@@ -153,12 +168,12 @@ def procesar_excel_para_streamlit(uploaded_file):
                     
                     time.sleep(0.05)
 
-            trm_placeholder.empty() # Limpiar el placeholder de TRM al finalizar
-            trm_progress_bar.empty() # Eliminar la barra de progreso
+            trm_placeholder.empty()
+            trm_progress_bar.empty()
             df_procesado.drop(columns=['Fecha elaboración_dt'], inplace=True)
-            st.success(f"Proceso de rellenado de **'Tasa de cambio'** completado. Total de consultas TRM: **{consultas_realizadas}**.")
+            st.success(f"Proceso de rellenado de **'Tasa de cambio'** completado. Total de consultas TRM realizadas: **{consultas_realizadas}**.")
         else:
-            st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Fecha elaboración'**. No se buscó la TRM.")
+            st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'**, **'Fecha elaboración'** y/o **'Número comprobante'**. No se buscó la TRM.")
 
         st.success("¡Procesamiento completado con éxito!")
         return df_procesado
