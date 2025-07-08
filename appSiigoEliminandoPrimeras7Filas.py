@@ -79,30 +79,10 @@ def procesar_excel_para_streamlit(uploaded_file):
 
         # Columnas a eliminar predefinidas
         nombres_columnas_a_eliminar = [
-            "Sucursal",
-            "Centro costo",
-            "Fecha creación",
-            "Fecha modificación",
-            "Correo electrónico",
-            "Tipo de registro",
-            "Referencia fábrica",
-            "Bodega",
-            "Identificación Vendedor",
-            "Nombre vendedor",
-            "Valor desc.",
-            "Base AIU",
-            "Impuesto cargo",
-            "Valor Impuesto Cargo",
-            "Impuesto Cargo 2",
-            "Valor Impuesto Cargo 2",
-            "Impuesto retención",
-            "Valor Impuesto Retención",
-            "Base retención (ICA/IVA)",
-            "Cargo en totales",
-            "Descuento en totales",
-            "Moneda",
-            "Forma pago",
-            "Fecha vencimiento"
+            "Nombre tercero",
+            "Código",
+            "Consecutivo",
+            "Tipo transacción"
         ]
 
         df_procesado = df.copy()
