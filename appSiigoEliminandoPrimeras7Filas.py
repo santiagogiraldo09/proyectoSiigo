@@ -1,54 +1,9 @@
 import streamlit as st
 import pandas as pd
-import requests
-from datetime import datetime
 import time
 import io
+import numpy as np
 
-# --- FUNCIÓN MEJORADA PARA OBTENER LA TRM ---
-@st.cache_data(ttl=3600) # Almacena en caché los resultados de la TRM por 1 hora
-def get_trm_from_datos_abiertos(target_date_str):
-    """
-    Consulta la TRM desde la API de Datos Abiertos Colombia (Socrata),
-    manejando fines de semana y festivos, buscando la TRM vigente en o antes de la fecha.
-
-    Args:
-        target_date_str (str): La fecha para la cual se desea consultar la TRM, en formato 'YYYY-MM-DD'.
-
-    Returns:
-        float or None: El valor de la TRM, o None si no se encuentra o hay un error.
-    """
-    BASE_URL = "https://www.datos.gov.co/resource/mcec-87by.json"
-
-    try:
-        # Construir la consulta Socrata Query Language (SoQL)
-        # $where: vigenciadesde <= 'fecha_solicitada' (busca TRM vigente en o antes de la fecha)
-        # $order: vigenciadesde DESC (para obtener la más reciente primero)
-        # $limit: 1 (para obtener solo un resultado)
-        soql_query = f"$where=vigenciadesde <= '{target_date_str}T23:59:59.000'&$order=vigenciadesde DESC&$limit=1"
-
-        response = requests.get(f"{BASE_URL}?{soql_query}", timeout=10) # Añadir timeout
-        response.raise_for_status() # Lanza una excepción para códigos de estado HTTP 4xx/5xx
-
-        data = response.json()
-
-        if data:
-            # Si hay datos, el primer elemento es la TRM más reciente y vigente para esa fecha o anterior
-            trm_data = data[0]
-            return float(trm_data.get('valor')) # Devuelve solo el valor float
-        else:
-            # st.warning(f"No se encontró TRM vigente para la fecha {target_date_str} o anterior en Datos Abiertos.")
-            return None # Si no hay datos, devuelve None
-
-    except requests.exceptions.RequestException as e:
-        # st.error(f"Error de conexión o HTTP al consultar Datos Abiertos para {target_date_str}: {e}")
-        return None
-    except (ValueError, IndexError, TypeError) as e:
-        # st.error(f"Error al parsear o acceder a los datos de la TRM para {target_date_str}: {e}")
-        return None
-    except Exception as e:
-        # st.error(f"Error inesperado al consultar Datos Abiertos para {target_date_str}: {e}")
-        return None
 
 # --- Función Principal de Procesamiento ---
 def procesar_excel_para_streamlit(uploaded_file):
@@ -102,7 +57,8 @@ def procesar_excel_para_streamlit(uploaded_file):
             "Descuento en totales",
             "Moneda",
             "Forma pago",
-            "Fecha vencimiento"
+            "Fecha vencimiento",
+            "Nombre contacto"
         ]
 
         df_procesado = df.copy()
@@ -139,61 +95,57 @@ def procesar_excel_para_streamlit(uploaded_file):
         else:
             st.warning("Advertencia: No se pudieron encontrar las columnas **'Cantidad'**, **'Valor unitario'** y/o **'Total'**. La columna **'Total'** no se actualizó.")
 
-        # 4. Rellenar celdas vacías o con 0 en "Tasa de cambio" con la TRM
-        if "Tasa de cambio" in df_procesado.columns and "Fecha elaboración" in df_procesado.columns and "Número comprobante" in df_procesado.columns:
-            st.info("Iniciando el proceso de rellenado de **'Tasa de cambio'** con TRM desde Datos Abiertos...")
-            
-            df_procesado['Fecha elaboración_dt'] = pd.to_datetime(df_procesado['Fecha elaboración'], format='%d/%m/%Y', errors='coerce')
-
-            trm_progress_bar = st.progress(0)
-            trm_placeholder = st.empty()
-            
-            # Identificar las filas que necesitan consulta de TRM
-            filas_a_consultar = df_procesado[
-                (pd.isna(df_procesado["Tasa de cambio"]) | (df_procesado["Tasa de cambio"] == 0)) &
-                pd.notna(df_procesado["Fecha elaboración_dt"]) &
-                (df_procesado["Número comprobante"].astype(str).str.startswith("FV", na=False))
+        # 4. Crear y posicionar la nueva columna "Numero comprobante"
+        columnas_necesarias = ['Número comprobante', 'Consecutivo', 'Factura proveedor']
+        if all(col in df_procesado.columns for col in columnas_necesarias):
+            # Definir las condiciones
+            conditions = [
+                df_procesado['Número comprobante'] == 'FV-1',
+                df_procesado['Número comprobante'] == 'FV-2'
             ]
-            total_trm_consultas_necesarias = len(filas_a_consultar)
-            consultas_realizadas = 0
-
-            for index, row in df_procesado.iterrows():
-                tasa_actual = row["Tasa de cambio"]
-                fecha_elaboracion_dt = row["Fecha elaboración_dt"]
-                numero_comprobante = row["Número comprobante"]
-
-                # --- INICIO DE LA MODIFICACIÓN ---
-                # Se añade la tercera condición: str(numero_comprobante).startswith("FV")
-                # Esto convierte el valor a texto de forma segura y comprueba si empieza con "FV"
-                condicion_tasa = pd.isna(tasa_actual) or tasa_actual == 0
-                condicion_fecha = pd.notna(fecha_elaboracion_dt)
-                condicion_comprobante = str(numero_comprobante).startswith("FV")
-
-                if condicion_tasa and condicion_fecha and condicion_comprobante:
-                # --- FIN DE LA MODIFICACIÓN ---
-                    fecha_str_api = fecha_elaboracion_dt.strftime('%Y-%m-%d')
-                    trm_placeholder.text(f"Buscando TRM para la fecha: {fecha_str_api} (Fila {index+2} de Excel original)...")
-                    trm_valor = get_trm_from_datos_abiertos(fecha_str_api)
-                    consultas_realizadas += 1
-                    
-                    if total_trm_consultas_necesarias > 0:
-                        progress_percentage = int((consultas_realizadas / total_trm_consultas_necesarias) * 100)
-                        trm_progress_bar.progress(progress_percentage)
-
-                    if trm_valor is not None:
-                        df_procesado.at[index, "Tasa de cambio"] = trm_valor
-                        trm_placeholder.text(f"TRM encontrada: {trm_valor} para {fecha_str_api}. (Fila {index+2} de Excel original)")
-                    else:
-                        trm_placeholder.warning(f"No se pudo obtener TRM para {fecha_str_api}. La celda permanecerá sin cambios. (Fila {index+2} de Excel original)")
-                    
-                    time.sleep(0.05)
-
-            trm_placeholder.empty()
-            trm_progress_bar.empty()
-            df_procesado.drop(columns=['Fecha elaboración_dt'], inplace=True)
-            st.success(f"Proceso de rellenado de **'Tasa de cambio'** completado. Total de consultas TRM realizadas: **{consultas_realizadas}**.")
+            
+            # Definir los valores a asignar para cada condición
+            choices = [
+                'FLE-' + df_procesado['Consecutivo'].astype(str),
+                'FSE-' + df_procesado['Consecutivo'].astype(str)
+            ]
+            
+            # Usar np.select para crear los valores de la nueva columna
+            # El valor por defecto será un texto vacío ''
+            valores_nueva_columna = np.select(conditions, choices, default='')
+            
+            # Encontrar la posición de la columna "Factura proveedor" para insertar antes
+            posicion_insercion = df_procesado.columns.get_loc('Factura proveedor')
+            
+            # Insertar la nueva columna en la posición encontrada
+            df_procesado.insert(posicion_insercion, 'Numero comprobante', valores_nueva_columna)
+            
+            st.success("Se ha creado y llenado la nueva columna **'Numero comprobante'**.")
+            
         else:
-            st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'**, **'Fecha elaboración'** y/o **'Número comprobante'**. No se buscó la TRM.")
+            st.warning("Advertencia: No se encontraron las columnas necesarias ('Número comprobante', 'Consecutivo', 'Factura proveedor') para crear la nueva columna.")
+        
+        # 5. Extraer TRM de 'Observaciones' y sobrescribir 'Tasa de cambio'
+        if "Tasa de cambio" in df_procesado.columns and "Observaciones" in df_procesado.columns:
+            st.info("Extrayendo TRM de 'Observaciones' y sobrescribiendo la columna 'Tasa de cambio'...")
+
+            # Asegura que la columna 'Observaciones' sea de tipo texto para evitar errores
+            df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
+
+            # Extrae el contenido de las llaves '{}' exactamente como está (como texto)
+            trm_extraida_como_texto = df_procesado['Observaciones'].str.extract(r'\{(.*?)\}')[0]
+
+            # Sobrescribe TODA la columna 'Tasa de cambio' con los valores extraídos
+            df_procesado['Tasa de cambio'] = trm_extraida_como_texto
+
+            # Si en alguna fila de 'Observaciones' no había {}, la celda quedará vacía (NaN).
+            # Se rellena con un texto vacío para evitar errores.
+            df_procesado['Tasa de cambio'].fillna('', inplace=True)
+
+            st.success("La columna **'Tasa de cambio'** ha sido completamente actualizada con los valores de 'Observaciones'.")
+
+        else:
+            st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**. No se pudo realizar el relleno.")
 
         st.success("¡Procesamiento completado con éxito!")
         return df_procesado
