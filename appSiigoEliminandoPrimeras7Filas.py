@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import time
 import io
 import numpy as np
 
@@ -126,26 +127,25 @@ def procesar_excel_para_streamlit(uploaded_file):
         
         # 5. Extraer TRM de 'Observaciones' y sobrescribir 'Tasa de cambio'
         if "Tasa de cambio" in df_procesado.columns and "Observaciones" in df_procesado.columns:
-            st.info("Actualizando 'Tasa de cambio' con los valores encontrados en 'Observaciones'...")
+            st.info("Extrayendo TRM de 'Observaciones' y sobrescribiendo la columna 'Tasa de cambio'...")
 
-            # Asegura que la columna 'Observaciones' sea de tipo texto
+            # Asegura que la columna 'Observaciones' sea de tipo texto para evitar errores
             df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
 
-            # Extrae el contenido de las llaves '{}'. El resultado será el texto o NaN si no hay llaves.
-            trm_extraida = df_procesado['Observaciones'].str.extract(r'\{(.*?)\}')[0]
+            # Extrae el contenido de las llaves '{}' exactamente como está (como texto)
+            trm_extraida_como_texto = df_procesado['Observaciones'].str.extract(r'\{(.*?)\}')[0]
 
-            # Crea una "máscara" para identificar las filas donde SÍ se encontró un valor
-            mascara_actualizacion = pd.notna(trm_extraida)
+            # Sobrescribe TODA la columna 'Tasa de cambio' con los valores extraídos
+            df_procesado['Tasa de cambio'] = trm_extraida_como_texto
 
-            # Usa .loc para actualizar 'Tasa de cambio' SÓLO en las filas donde la máscara es Verdadera
-            df_procesado.loc[mascara_actualizacion, 'Tasa de cambio'] = trm_extraida[mascara_actualizacion]
-            
-            filas_actualizadas = mascara_actualizacion.sum()
-            st.success(f"Se actualizaron **{filas_actualizadas}** filas en 'Tasa de cambio'. Los valores existentes se respetaron donde no se encontró un valor entre {{}}.")
+            # Si en alguna fila de 'Observaciones' no había {}, la celda quedará vacía (NaN).
+            # Se rellena con un texto vacío para evitar errores.
+            df_procesado['Tasa de cambio'].fillna('', inplace=True)
+
+            st.success("La columna **'Tasa de cambio'** ha sido completamente actualizada con los valores de 'Observaciones'.")
 
         else:
             st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**. No se pudo realizar el relleno.")
-        # --- FIN DE LA MODIFICACIÓN ---
 
         st.success("¡Procesamiento completado con éxito!")
         return df_procesado
