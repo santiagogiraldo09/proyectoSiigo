@@ -132,16 +132,12 @@ def procesar_excel_para_streamlit(uploaded_file):
             st.info("Actualizando 'Tasa de cambio' con los valores encontrados en 'Observaciones'...")
 
             df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
-
             # Extrae el contenido de las llaves '{}'. El resultado será el texto o NaN si no hay llaves.
             trm_extraida = df_procesado['Observaciones'].str.extract(r'\{(.*?)\}')[0]
-
             # Elimina las filas donde no se encontró nada (NaN), para quedarnos solo con los valores a actualizar.
             trm_extraida.dropna(inplace=True)
-
             # Aseguramos que la columna 'Tasa de cambio' pueda recibir texto sin problemas.
             df_procesado['Tasa de cambio'] = df_procesado['Tasa de cambio'].astype(object)
-
             # Actualiza la columna 'Tasa de cambio' SÓLO con los valores encontrados.
             # El método .update() alinea por índice y solo modifica donde hay coincidencia.
             df_procesado['Tasa de cambio'].update(trm_extraida)
@@ -150,6 +146,34 @@ def procesar_excel_para_streamlit(uploaded_file):
             st.success(f"Se actualizaron **{filas_actualizadas}** filas en 'Tasa de cambio'. Los valores existentes se respetaron donde no se encontró un valor entre {{}}.")
         else:
             st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**.")
+
+        # 6. Relacionar documentos FV-1 con DS-1 y FC-1
+        st.info("Iniciando el proceso de relacionamiento de documentos...")
+        
+        # Separar el DataFrame en los dos grupos principales
+        df_destino = df_procesado[df_procesado['Número comprobante'].isin(['FV-1', 'FV-2'])].copy()
+        df_fuente = df_procesado[df_procesado['Número comprobante'].isin(['DS-1', 'FC-1'])].copy()
+
+        if not df_fuente.empty:
+            # Preparar el DataFrame fuente (DS-1, FC-1)
+            df_fuente['cliente_relacion'] = df_fuente['Observaciones'].str.extract(r'\((.*?)\)')[0]
+            
+            # Añadir prefijo a las columnas para evitar colisiones y dar claridad
+            df_fuente = df_fuente.add_prefix('REL_')
+            
+            # Realizar la unión externa (outer join)
+            df_final = pd.merge(
+                df_destino,
+                df_fuente,
+                how='outer',
+                left_on=['Nombre tercero', 'Código'],
+                right_on=['REL_cliente_relacion', 'REL_Código']
+            )
+            
+            st.success("Relacionamiento completado. Los documentos sin pareja se han conservado.")
+            df_procesado = df_final
+        else:
+            st.warning("No se encontraron documentos DS-1 o FC-1 para relacionar. El archivo final no tendrá columnas de relación.")
 
         st.success("¡Procesamiento completado con éxito!")
         return df_procesado
