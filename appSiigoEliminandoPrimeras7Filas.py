@@ -158,6 +158,12 @@ def procesar_excel_para_streamlit(uploaded_file):
             # Preparar el DataFrame fuente (DS-1, FC-1)
             df_fuente['NIT_relacion'] = df_fuente['Observaciones'].str.extract(r'\((.*?)\)')[0]
             
+            df_destino['Identificación'] = df_destino['Identificación'].astype(str)
+            df_destino['Código'] = df_destino['Código'].astype(str)
+            
+            df_fuente['NIT_relacion'] = df_fuente['NIT_relacion'].astype(str)
+            df_fuente['Código'] = df_fuente['Código'].astype(str)
+            
             # Añadir prefijo a las columnas para evitar colisiones y dar claridad
             df_fuente = df_fuente.add_prefix('REL_')
             
