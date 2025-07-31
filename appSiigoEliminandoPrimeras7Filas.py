@@ -180,6 +180,35 @@ def procesar_excel_para_streamlit(uploaded_file):
             df_procesado = df_final
         else:
             st.warning("No se encontraron documentos DS-1 o FC-1 para relacionar. El archivo final no tendrá columnas de relación.")
+        
+        # 7. Organizar y Limpiar Columnas Finales
+        st.info("Organizando el formato final del archivo...")
+        
+        #Creación de la nueva columna "Vendedor"
+        if 'Vendedor' not in df_procesado.columns:
+            df_procesado['Vendedor'] = ''
+        
+        #Se define el orden y la selección final de las columnas
+        columnas_finales = [
+            # Columnas del lado izquierdo (FV)
+            'Tipo clasificación', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
+            'Fecha elaboración', 'Identificación', 'Nombre tercero', 'Vendedor', 'Cantidad',
+            'Valor unitario', 'Total', 'Tasa de cambio', 'Observaciones',
+            
+            # Columnas del lado derecho (REL_)
+            'REL_Tipo clasificación', 'REL_Número comprobante', 'REL_Consecutivo',
+            'REL_Factura proveedor', 'REL_Identificación', 'REL_Nombre tercero', 'REL_Cantidad',
+            'REL_Valor unitario', 'REL_Total', 'REL_Tasa de cambio', 'REL_Observaciones'
+        ]
+        
+        # Filtrar la lista para incluir solo las columnas que realmente existen en el DataFrame
+        # Esto hace el código más robusto si alguna columna faltara
+        columnas_existentes_ordenadas = [col for col in columnas_finales if col in df_procesado.columns]
+
+        # Reordenar y eliminar las columnas no deseadas de una sola vez
+        df_procesado = df_procesado[columnas_existentes_ordenadas]
+
+        st.success("Columnas reorganizadas y limpiadas con éxito.")
 
         st.success("¡Procesamiento completado con éxito!")
         return df_procesado
