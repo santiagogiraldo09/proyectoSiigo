@@ -156,7 +156,7 @@ def procesar_excel_para_streamlit(uploaded_file):
 
         if not df_fuente.empty:
             # Preparar el DataFrame fuente (DS-1, FC-1)
-            df_fuente['cliente_relacion'] = df_fuente['Observaciones'].str.extract(r'\((.*?)\)')[0]
+            df_fuente['NIT_relacion'] = df_fuente['Observaciones'].str.extract(r'\((.*?)\)')[0]
             
             # Añadir prefijo a las columnas para evitar colisiones y dar claridad
             df_fuente = df_fuente.add_prefix('REL_')
@@ -166,8 +166,8 @@ def procesar_excel_para_streamlit(uploaded_file):
                 df_destino,
                 df_fuente,
                 how='outer',
-                left_on=['Nombre tercero', 'Código'],
-                right_on=['REL_cliente_relacion', 'REL_Código']
+                left_on=['Identificación', 'Código'],
+                right_on=['REL_NIT_relacion', 'REL_Código']
             )
             
             st.success("Relacionamiento completado. Los documentos sin pareja se han conservado.")
