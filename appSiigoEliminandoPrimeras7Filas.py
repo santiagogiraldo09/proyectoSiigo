@@ -159,7 +159,7 @@ def procesar_excel_para_streamlit(uploaded_file):
             df_fuente['NIT_relacion'] = df_fuente['Observaciones'].str.extract(r'\((.*?)\)')[0]
             
             df_destino['Identificación'] = df_destino['Identificación'].astype('Int64').astype(str)
-            df_destino['Código'] = df_destino['Código'].astype('Int64').astype(str) 
+            df_destino['Código'] = df_destino['Código'].astype(str)
             
             df_fuente['NIT_relacion'] = df_fuente['NIT_relacion'].astype(str)
             df_fuente['Código'] = df_fuente['Código'].astype(str)
