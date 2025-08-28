@@ -193,16 +193,36 @@ def procesar_excel_para_streamlit(uploaded_file):
         #Creación de la nueva columna "Vendedor"
         if 'Vendedor' not in df_procesado.columns:
             df_procesado['Vendedor'] = ''
+            
+        #Creación de la nueva columna "Clasificación Producto"
+        if 'Clasificación Producto' not in df_procesado.columns:
+            df_procesado['Clasificación Producto'] = ''
+            
+        #Creación de la nueva columna "Línea"
+        if 'Línea' not in df_procesado.columns:
+            df_procesado['Línea'] = ''
+            
+        #Creación de la nueva columna "Descripción Línea"
+        if 'Descripción Línea' not in df_procesado.columns:
+            df_procesado['Descripción Línea'] = ''
+            
+        #Creación de la nueva columna "Sublínea"
+        if 'Sublínea' not in df_procesado.columns:
+            df_procesado['Sublínea'] = ''
+            
+        #Creación de la nueva columna "Descripción Sublínea"
+        if 'Descripción Sublínea' not in df_procesado.columns:
+            df_procesado['Descripción Sublínea'] = ''
         
         #Se define el orden y la selección final de las columnas
         columnas_finales = [
             # Columnas del lado izquierdo (FV)
-            'Tipo Bien', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
+            'Tipo Bien', 'Clasificación Producto', 'Línea', 'Descripción Línea', 'Sublínea', 'Descripción Sublínea', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
             'Fecha elaboración', 'Identificación', 'Nombre tercero', 'Vendedor', 'Cantidad',
             'Valor unitario', 'Total', 'Tasa de cambio', 'Observaciones',
             
             # Columnas del lado derecho (REL_)
-            'REL_Tipo Bien', 'REL_Número comprobante', 'REL_Consecutivo',
+            'REL_Número comprobante', 'REL_Consecutivo',
             'REL_Factura proveedor', 'REL_Identificación', 'REL_Nombre tercero', 'REL_Cantidad',
             'REL_Valor unitario', 'REL_Total', 'REL_Tasa de cambio'
         ]
