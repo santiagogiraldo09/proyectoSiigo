@@ -190,6 +190,15 @@ def procesar_excel_para_streamlit(uploaded_file):
             df_procesado.rename(columns={"Tipo clasificación": "Tipo Bien"}, inplace=True)
             st.info("La columna **'Tipo clasificación'** ha sido renombrada a **'Tipo Bien'**.")
         
+        if 'Tipo Bien' in df_procesado.columns:
+            # Creamos un diccionario con los valores a reemplazar
+            mapeo_valores = {
+                'Servicio': 'S',
+                'Producto': 'P'
+            }
+            df_procesado['Tipo Bien'].replace(mapeo_valores, inplace=True)
+            st.info("Valores en 'Tipo Bien' actualizados: 'Servicio' a 'S' y 'Producto' a 'P'.")
+        
         #Creación de la nueva columna "Vendedor"
         if 'Vendedor' not in df_procesado.columns:
             df_procesado['Vendedor'] = ''
