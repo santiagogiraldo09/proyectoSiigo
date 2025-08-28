@@ -184,6 +184,12 @@ def procesar_excel_para_streamlit(uploaded_file):
         # 7. Organizar y Limpiar Columnas Finales
         st.info("Organizando el formato final del archivo...")
         
+        # A. Renombrar la columna "Tipo clasificación" a "Tipo Bien"
+        # Verificamos si la columna existe antes de intentar renombrarla
+        if "Tipo clasificación" in df_procesado.columns:
+            df_procesado.rename(columns={"Tipo clasificación": "Tipo Bien"}, inplace=True)
+            st.info("La columna **'Tipo clasificación'** ha sido renombrada a **'Tipo Bien'**.")
+        
         #Creación de la nueva columna "Vendedor"
         if 'Vendedor' not in df_procesado.columns:
             df_procesado['Vendedor'] = ''
@@ -191,14 +197,14 @@ def procesar_excel_para_streamlit(uploaded_file):
         #Se define el orden y la selección final de las columnas
         columnas_finales = [
             # Columnas del lado izquierdo (FV)
-            'Tipo clasificación', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
+            'Tipo Bien', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
             'Fecha elaboración', 'Identificación', 'Nombre tercero', 'Vendedor', 'Cantidad',
             'Valor unitario', 'Total', 'Tasa de cambio', 'Observaciones',
             
             # Columnas del lado derecho (REL_)
-            'REL_Tipo clasificación', 'REL_Número comprobante', 'REL_Consecutivo',
+            'REL_Tipo Bien', 'REL_Número comprobante', 'REL_Consecutivo',
             'REL_Factura proveedor', 'REL_Identificación', 'REL_Nombre tercero', 'REL_Cantidad',
-            'REL_Valor unitario', 'REL_Total', 'REL_Tasa de cambio', 'REL_Observaciones'
+            'REL_Valor unitario', 'REL_Total', 'REL_Tasa de cambio'
         ]
         
         # Filtrar la lista para incluir solo las columnas que realmente existen en el DataFrame
