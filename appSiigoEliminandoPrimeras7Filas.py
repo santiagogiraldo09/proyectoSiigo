@@ -33,6 +33,11 @@ def procesar_excel_para_streamlit(uploaded_file):
         st.info(f"Archivo cargado exitosamente. Se saltaron las primeras 7 filas. Filas iniciales (después de saltar): **{len(df)}**.")
 
         df_procesado = df.copy()
+        
+        # Renombrar la columna "Tipo clasificación" a "Tipo Bien"
+        # Verificamos si la columna existe antes de intentar renombrarla
+        if "Tipo clasificación" in df_procesado.columns:
+            df_procesado.rename(columns={"Tipo clasificación": "Tipo Bien"}, inplace=True)
 
         # Columnas a eliminar predefinidas
         nombres_columnas_a_eliminar = [
@@ -65,14 +70,14 @@ def procesar_excel_para_streamlit(uploaded_file):
 
         df_procesado = df.copy()
 
-        # 1. Eliminar filas donde "Tipo clasificación" esté vacío/NaN
-        if "Tipo clasificación" in df_procesado.columns:
+        # 1. Eliminar filas donde "Tipo Bien" esté vacío/NaN
+        if "Tipo Bien" in df_procesado.columns:
             filas_antes_eliminacion = len(df_procesado)
-            df_procesado.dropna(subset=["Tipo clasificación"], inplace=True)
+            df_procesado.dropna(subset=["Tipo Bien"], inplace=True)
             filas_despues_eliminacion = len(df_procesado)
-            st.success(f"Filas con 'Tipo clasificación' vacío eliminadas: **{filas_antes_eliminacion - filas_despues_eliminacion}**. Filas restantes: **{filas_despues_eliminacion}**.")
+            st.success(f"Filas con 'Tipo Bien' vacío eliminadas: **{filas_antes_eliminacion - filas_despues_eliminacion}**. Filas restantes: **{filas_despues_eliminacion}**.")
         else:
-            st.warning("La columna **'Tipo clasificación'** no se encontró. No se eliminaron filas vacías.")
+            st.warning("La columna **'Tipo Bien'** no se encontró. No se eliminaron filas vacías.")
 
         # 2. Eliminar columnas especificadas
         columnas_existentes_para_eliminar = [col for col in nombres_columnas_a_eliminar if col in df_procesado.columns]
@@ -191,12 +196,12 @@ def procesar_excel_para_streamlit(uploaded_file):
         #Se define el orden y la selección final de las columnas
         columnas_finales = [
             # Columnas del lado izquierdo (FV)
-            'Tipo clasificación', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
+            'Tipo Bien', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
             'Fecha elaboración', 'Identificación', 'Nombre tercero', 'Vendedor', 'Cantidad',
             'Valor unitario', 'Total', 'Tasa de cambio', 'Observaciones',
             
             # Columnas del lado derecho (REL_)
-            'REL_Tipo clasificación', 'REL_Número comprobante', 'REL_Consecutivo',
+            'REL_Tipo Bien', 'REL_Número comprobante', 'REL_Consecutivo',
             'REL_Factura proveedor', 'REL_Identificación', 'REL_Nombre tercero', 'REL_Cantidad',
             'REL_Valor unitario', 'REL_Total', 'REL_Tasa de cambio', 'REL_Observaciones'
         ]
