@@ -223,25 +223,18 @@ def procesar_excel_para_streamlit(uploaded_file):
         if 'Descripción Sublínea' not in df_procesado.columns:
             df_procesado['Descripción Sublínea'] = ''
             
-        #Creación de la nueva columna "Vr.Total ME"
-        if 'Vr.Total ME' not in df_procesado.columns:
-            df_procesado['Vr.Total ME'] = df_procesado["Total"] / df_procesado["Tasa de cambio"]
-            
-        #Creación de la nueva columna "Valor Total Compra ME"
-        if 'Valor Total Compra ME' not in df_procesado.columns:
-            df_procesado['Valor Total Compra ME'] = df_procesado["REL_Total"] / df_procesado["REL_Tasa de cambio"]
         
         #Se define el orden y la selección final de las columnas
         columnas_finales = [
             # Columnas del lado izquierdo (FV)
             'Tipo Bien', 'Clasificación Producto', 'Línea', 'Descripción Línea', 'Sublínea', 'Descripción Sublínea', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
             'Fecha elaboración', 'Identificación', 'Nombre tercero', 'Vendedor', 'Cantidad',
-            'Valor unitario', 'Total', 'Tasa de cambio', 'Vr.Total ME' , 'Observaciones',
+            'Valor unitario', 'Total', 'Tasa de cambio', 'Observaciones',
             
             # Columnas del lado derecho (REL_)
             'REL_Número comprobante', 'REL_Consecutivo',
             'REL_Factura proveedor', 'REL_Identificación', 'REL_Nombre tercero', 'REL_Cantidad',
-            'REL_Valor unitario',  'REL_Tasa de cambio', 'REL_Total', 'Valor Total Compra ME'
+            'REL_Valor unitario',  'REL_Tasa de cambio', 'REL_Total'
         ]
         
         # Filtrar la lista para incluir solo las columnas que realmente existen en el DataFrame
