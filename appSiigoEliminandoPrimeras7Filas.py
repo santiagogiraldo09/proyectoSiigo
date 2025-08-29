@@ -147,6 +147,26 @@ def procesar_excel_para_streamlit(uploaded_file):
         else:
             st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**.")
 
+        # 5.1. Calcular la nueva columna 'Valor Total ME'
+        st.info("Calculando la nueva columna 'Valor Total ME'...")
+        if 'Total' in df_procesado.columns and 'Tasa de cambio' in df_procesado.columns:
+            # Para evitar errores, convertimos 'Tasa de cambio' a número. 
+            # Los valores no numéricos se volverán NaN (Not a Number).
+            tasa_numerica = pd.to_numeric(df_procesado['Tasa de cambio'], errors='coerce')
+            
+            # Reemplazamos 0 con NaN para evitar errores de división por cero.
+            tasa_numerica.replace(0, np.nan, inplace=True)
+
+            # Realizamos la división. Si se divide por NaN, el resultado será NaN.
+            df_procesado['Valor Total ME'] = df_procesado['Total'] / tasa_numerica
+            
+            # Rellenamos cualquier resultado inválido (NaN) con 0 para mantener la consistencia.
+            df_procesado['Valor Total ME'].fillna(0, inplace=True)
+            
+            st.success("Se ha creado y calculado la columna **'Valor Total ME'**.")
+        else:
+            st.warning("No se pudieron encontrar las columnas 'Total' y/o 'Tasa de cambio'. No se pudo calcular 'Valor Total ME'.")
+
         # 6. Relacionar documentos FV-1 con DS-1 y FC-1
         st.info("Iniciando el proceso de relacionamiento de documentos...")
         
@@ -229,12 +249,12 @@ def procesar_excel_para_streamlit(uploaded_file):
             # Columnas del lado izquierdo (FV)
             'Tipo Bien', 'Clasificación Producto', 'Línea', 'Descripción Línea', 'Sublínea', 'Descripción Sublínea', 'Código', 'Nombre', 'Número comprobante', 'Numero comprobante',
             'Fecha elaboración', 'Identificación', 'Nombre tercero', 'Vendedor', 'Cantidad',
-            'Valor unitario', 'Total', 'Tasa de cambio', 'Observaciones',
+            'Valor unitario', 'Total', 'Tasa de cambio', 'Valor Total ME', 'Observaciones',
             
             # Columnas del lado derecho (REL_)
             'REL_Número comprobante', 'REL_Consecutivo',
             'REL_Factura proveedor', 'REL_Identificación', 'REL_Nombre tercero', 'REL_Cantidad',
-            'REL_Valor unitario',  'REL_Tasa de cambio', 'REL_Total'
+            'REL_Valor unitario',  'REL_Tasa de cambio', 'REL_Total', 'REL_Valor Total ME'
         ]
         
         # Filtrar la lista para incluir solo las columnas que realmente existen en el DataFrame
