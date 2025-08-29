@@ -36,35 +36,28 @@ def procesar_excel_para_streamlit(uploaded_file):
 
         def limpiar_y_convertir_a_numero(columna):
             """
-            Toma una columna de pandas, la limpia de formatos comunes (comas/puntos)
+            Toma una columna de pandas, la limpia de formatos mixtos (comas/puntos)
             y la convierte a un tipo de dato numérico.
             """
-            if columna.dtype == 'object' or pd.api.types.is_string_dtype(columna):
-                # Convertir a texto para poder usar métodos .str
-                columna_texto = columna.astype(str)
-                # 1. Quitar separadores de miles (puntos y comas)
-                #    Ej: "1,500,000.25" -> "1500000.25" | "1.500.000,25" -> "1500000,25"
-                #    Para ser más robustos, primero quitamos la coma de miles
-                columna_texto = columna_texto.str.replace(',', '', regex=False)
+            # Solo procesa si la columna contiene texto
+            if pd.api.types.is_string_dtype(columna) or columna.dtype == 'object':
+                columna_texto = columna.astype(str).str.strip()
+                
+                # Reemplaza la coma decimal por un punto.
+                # "4.500,25" -> "4.500.25"
+                # "4,042.50" -> "4.042.50" (no cambia esta)
+                columna_texto = columna_texto.str.replace(',', '.', regex=False)
+                
+                # Ahora que solo hay puntos, eliminamos todos los que actúan como
+                # separadores de miles (es decir, todos menos el último).
+                # Usamos una expresión regular para esto.
+                # "4.500.25" -> "4500.25"
+                # "4.042.50" -> "4042.50"
+                columna_texto = columna_texto.str.replace(r'\.(?=[^.]*\.)', '', regex=True)
 
-                # 2. Asumimos que la coma restante es decimal y la reemplazamos por punto
-                #    Esta línea es específica para formatos donde la coma es el decimal.
-                #    Como la coma de miles ya fue removida, esta acción es más segura.
-                #    Ej: "1500000,25" -> "1500000.25"
-                #    (Esta línea puede necesitar ajustarse si el formato es muy variado)
-                
-                # Para ser más seguro, vamos a manejar ambos casos. 
-                # Primero removemos comas de miles.
-                columna_texto = columna.astype(str).str.replace(',', '', regex=False)
-                
-                # Convertimos a numérico. Esto funcionará para "4042.50" pero fallará para "4042,5"
-                # Para solucionar esto, es mejor tener una estrategia única.
-                # Estrategia Final: Asumir que la coma es decimal y el punto de miles.
-                columna_texto = columna.astype(str)
-                columna_texto = columna_texto.str.replace('.', '', regex=False) # Quita puntos de miles
-                columna_texto = columna_texto.str.replace(',', '.', regex=False) # Cambia coma decimal a punto
-                
                 return pd.to_numeric(columna_texto, errors='coerce')
+            
+            # Si ya es numérica, solo la devuelve
             return pd.to_numeric(columna, errors='coerce')
 
 
