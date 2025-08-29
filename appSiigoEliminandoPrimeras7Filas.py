@@ -34,39 +34,20 @@ def procesar_excel_para_streamlit(uploaded_file):
 
         df_procesado = df.copy()
 
+        # --- FUNCIÓN AUXILIAR PARA LIMPIAR NÚMEROS ---
         def limpiar_y_convertir_a_numero(columna):
-            """
-            Toma una columna de pandas, la limpia de formatos mixtos (comas/puntos)
-            y la convierte a un tipo de dato numérico.
-            """
-            # Solo procesa si la columna contiene texto
             if pd.api.types.is_string_dtype(columna) or columna.dtype == 'object':
                 columna_texto = columna.astype(str).str.strip()
-                
-                # Reemplaza la coma decimal por un punto.
-                # "4.500,25" -> "4.500.25"
-                # "4,042.50" -> "4.042.50" (no cambia esta)
                 columna_texto = columna_texto.str.replace(',', '.', regex=False)
-                
-                # Ahora que solo hay puntos, eliminamos todos los que actúan como
-                # separadores de miles (es decir, todos menos el último).
-                # Usamos una expresión regular para esto.
-                # "4.500.25" -> "4500.25"
-                # "4.042.50" -> "4042.50"
                 columna_texto = columna_texto.str.replace(r'\.(?=[^.]*\.)', '', regex=True)
-
                 return pd.to_numeric(columna_texto, errors='coerce')
-            
-            # Si ya es numérica, solo la devuelve
             return pd.to_numeric(columna, errors='coerce')
 
-
-        # --- APLICAR LIMPIEZA ANTES DE CUALQUIER CÁLCULO ---
-        st.info("Estandarizando formatos numéricos...")
-        columnas_a_limpiar = ['Cantidad', 'Valor unitario', 'Tasa de cambio']
-        for col_nombre in columnas_a_limpiar:
+        st.info("Estandarizando formatos numéricos iniciales...")
+        columnas_numericas_iniciales = ['Cantidad', 'Valor unitario']
+        for col_nombre in columnas_numericas_iniciales:
             if col_nombre in df_procesado.columns:
-                df_procesado[col_nombre] = limpiar_y_convertir_a_numero(df_procesado[col_nombre])
+                df_procesado[col_nombre] = limpiar_y_convertir_a_numero(df_procesado[col_nombre])        
 
         # Columnas a eliminar predefinidas
         nombres_columnas_a_eliminar = [
@@ -181,25 +162,26 @@ def procesar_excel_para_streamlit(uploaded_file):
         else:
             st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**.")
 
-        # 5.1. Calcular la nueva columna 'Valor Total ME'
-        st.info("Calculando la nueva columna 'Valor Total ME'...")
+        # 5.1. Calcular la nueva columna 'Valor Total ME' (VERSIÓN CORREGIDA FINAL)
+        st.info("Calculando 'Valor Total ME'...")
         if 'Total' in df_procesado.columns and 'Tasa de cambio' in df_procesado.columns:
-            # Para evitar errores, convertimos 'Tasa de cambio' a número. 
-            # Los valores no numéricos se volverán NaN (Not a Number).
+            
+            # PASO CLAVE: Nos aseguramos de que 'Tasa de cambio' sea numérica OTRA VEZ,
+            # justo antes de la división, para revertir el cambio a 'object' del paso anterior.
             tasa_numerica = pd.to_numeric(df_procesado['Tasa de cambio'], errors='coerce')
             
             # Reemplazamos 0 con NaN para evitar errores de división por cero.
             tasa_numerica.replace(0, np.nan, inplace=True)
 
-            # Realizamos la división. Si se divide por NaN, el resultado será NaN.
+            # Realizamos la división.
             df_procesado['Valor Total ME'] = df_procesado['Total'] / tasa_numerica
             
-            # Rellenamos cualquier resultado inválido (NaN) con 0 para mantener la consistencia.
+            # Rellenamos cualquier resultado inválido (NaN) con 0.
             df_procesado['Valor Total ME'].fillna(0, inplace=True)
             
             st.success("Se ha creado y calculado la columna **'Valor Total ME'**.")
         else:
-            st.warning("No se pudieron encontrar las columnas 'Total' y/o 'Tasa de cambio'. No se pudo calcular 'Valor Total ME'.")
+            st.warning("No se pudo calcular 'Valor Total ME'.")
 
         # 6. Relacionar documentos FV-1 con DS-1 y FC-1
         st.info("Iniciando el proceso de relacionamiento de documentos...")
