@@ -33,21 +33,13 @@ def procesar_excel_para_streamlit(uploaded_file):
         st.info(f"Archivo cargado exitosamente. Se saltaron las primeras 7 filas. Filas iniciales (después de saltar): **{len(df)}**.")
 
         df_procesado = df.copy()
-
-        # --- FUNCIÓN AUXILIAR PARA LIMPIAR NÚMEROS ---
-        def limpiar_y_convertir_a_numero(columna):
-            if pd.api.types.is_string_dtype(columna) or columna.dtype == 'object':
-                columna_texto = columna.astype(str).str.strip()
-                columna_texto = columna_texto.str.replace(',', '.', regex=False)
-                columna_texto = columna_texto.str.replace(r'\.(?=[^.]*\.)', '', regex=True)
-                return pd.to_numeric(columna_texto, errors='coerce')
-            return pd.to_numeric(columna, errors='coerce')
-
-        st.info("Estandarizando formatos numéricos iniciales...")
-        columnas_numericas_iniciales = ['Cantidad', 'Valor unitario']
-        for col_nombre in columnas_numericas_iniciales:
-            if col_nombre in df_procesado.columns:
-                df_procesado[col_nombre] = limpiar_y_convertir_a_numero(df_procesado[col_nombre])        
+        
+        # --- FUNCIÓN DE LIMPIEZA SIMPLE ---
+        def convertir_a_numero_limpiando_comas(columna):
+            if not pd.api.types.is_string_dtype(columna):
+                columna = columna.astype(str)
+            columna_limpia = columna.str.replace(',', '', regex=False)
+            return pd.to_numeric(columna_limpia, errors='coerce')
 
         # Columnas a eliminar predefinidas
         nombres_columnas_a_eliminar = [
@@ -143,24 +135,55 @@ def procesar_excel_para_streamlit(uploaded_file):
             st.warning("Advertencia: No se encontraron las columnas necesarias ('Número comprobante', 'Consecutivo', 'Factura proveedor') para crear la nueva columna.")
         
         # 5. Extraer TRM de 'Observaciones' y sobrescribir 'Tasa de cambio'
-        if "Tasa de cambio" in df_procesado.columns and "Observaciones" in df_procesado.columns:
-            st.info("Actualizando 'Tasa de cambio' con los valores encontrados en 'Observaciones'...")
+        #if "Tasa de cambio" in df_procesado.columns and "Observaciones" in df_procesado.columns:
+            #st.info("Actualizando 'Tasa de cambio' con los valores encontrados en 'Observaciones'...")
 
-            df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
+            #df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
             # Extrae el contenido de las llaves '{}'. El resultado será el texto o NaN si no hay llaves.
-            trm_extraida = df_procesado['Observaciones'].str.extract(r'\{(.*?)\}')[0]
+            #trm_extraida = df_procesado['Observaciones'].str.extract(r'\{(.*?)\}')[0]
             # Elimina las filas donde no se encontró nada (NaN), para quedarnos solo con los valores a actualizar.
-            trm_extraida.dropna(inplace=True)
+            #trm_extraida.dropna(inplace=True)
             # Aseguramos que la columna 'Tasa de cambio' pueda recibir texto sin problemas.
-            df_procesado['Tasa de cambio'] = df_procesado['Tasa de cambio'].astype(object)
+            #df_procesado['Tasa de cambio'] = df_procesado['Tasa de cambio'].astype(object)
             # Actualiza la columna 'Tasa de cambio' SÓLO con los valores encontrados.
             # El método .update() alinea por índice y solo modifica donde hay coincidencia.
-            df_procesado['Tasa de cambio'].update(trm_extraida)
+            #df_procesado['Tasa de cambio'].update(trm_extraida)
             
-            filas_actualizadas = len(trm_extraida)
-            st.success(f"Se actualizaron **{filas_actualizadas}** filas en 'Tasa de cambio'. Los valores existentes se respetaron donde no se encontró un valor entre {{}}.")
-        else:
-            st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**.")
+            #filas_actualizadas = len(trm_extraida)
+            #st.success(f"Se actualizaron **{filas_actualizadas}** filas en 'Tasa de cambio'. Los valores existentes se respetaron donde no se encontró un valor entre {{}}.")
+        #else:
+            #st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**.")
+        # 5. Extraer, LIMPIAR y sobrescribir 'Tasa de cambio' desde 'Observaciones' (LÓGICA CORREGIDA Y ENFOCADA)
+        if "Tasa de cambio" in df_procesado.columns and "Observaciones" in df_procesado.columns:
+            
+            # Para evitar problemas, nos aseguramos de que la columna 'Tasa de cambio' sea numérica desde el principio.
+            # Usamos la limpieza simple de comas que ya definimos.
+            df_procesado['Tasa de cambio'] = convertir_a_numero_limpiando_comas(df_procesado['Tasa de cambio']).fillna(0)
+
+            # 1. EXTRAER el valor de las observaciones como texto.
+            trm_extraida = df_procesado['Observaciones'].astype(str).str.extract(r'\{(.*?)\}')[0]
+            
+            # Quitamos las filas donde no se encontró nada.
+            trm_extraida.dropna(inplace=True)
+
+            if not trm_extraida.empty:
+                st.info("Valores de TRM encontrados en 'Observaciones'. Limpiando y actualizando...")
+
+                # 2. LIMPIAR el texto extraído (quitamos comas de miles).
+                # Ejemplo: "4,061.36" se convierte en "4061.36"
+                trm_limpia = trm_extraida.str.replace(',', '', regex=False)
+
+                # 3. CONVERTIR el texto limpio a un formato numérico.
+                trm_numerica = pd.to_numeric(trm_limpia, errors='coerce')
+                
+                # Quitamos las filas donde la conversión a número pudo haber fallado.
+                trm_numerica.dropna(inplace=True)
+
+                # 4. ACTUALIZAR la columna 'Tasa de cambio' con los valores ya numéricos y limpios.
+                # El método .update() alinea por índice y solo modifica donde encuentra correspondencia.
+                df_procesado['Tasa de cambio'].update(trm_numerica)
+                st.success(f"Se actualizaron **{len(trm_numerica)}** filas en 'Tasa de cambio' con valores numéricos limpios desde 'Observaciones'.")
+
 
         # 5.1. Calcular la nueva columna 'Valor Total ME' (VERSIÓN CORREGIDA FINAL)
         st.info("Calculando 'Valor Total ME'...")
