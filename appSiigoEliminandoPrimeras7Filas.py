@@ -304,40 +304,6 @@ def procesar_excel_para_streamlit(uploaded_file):
         df_procesado = df_procesado[columnas_existentes_ordenadas]
 
         st.success("Columnas reorganizadas y limpiadas con éxito.")
-
-        st.success("¡Procesamiento completado con éxito!")
-        
-        # --- INICIO DEL BLOQUE INSPECTOR FINAL ---
-        st.subheader("🕵️‍♀️ Informe de Filas Problemáticas (Post-Procesamiento)")
-        
-        # Filtramos las filas donde ocurre el error exacto que describes:
-        # 'Valor Total ME' es 0, PERO el 'Total' original NO era 0.
-        filas_problematicas = df_procesado[
-            (df_procesado['Valor Total ME'] == 0) & 
-            (df_procesado['Total'] != 0)
-        ]
- 
-        if not filas_problematicas.empty:
-            st.error("Se detectaron filas donde el cálculo de 'Valor Total ME' falló. Estos son los datos de esas filas DESPUÉS de toda la limpieza:")
-            
-            # Columnas que queremos ver para entender qué pasó
-            columnas_a_inspeccionar = [
-                'Cantidad', 
-                'Valor unitario', 
-                'Total', 
-                'Tasa de cambio', 
-                'Valor Total ME'
-            ]
-            
-            # Nos aseguramos de que las columnas existan antes de mostrarlas
-            columnas_existentes = [col for col in columnas_a_inspeccionar if col in filas_problematicas.columns]
-            
-            st.dataframe(filas_problematicas[columnas_existentes])
-            st.warning("Revisa la tabla de arriba. Si 'Tasa de cambio' es 0 o está vacía (NaN) en estas filas, hemos encontrado el error en la función de limpieza.")
-        else:
-            st.success("¡Inspección final completa! No se encontraron filas con el error de cálculo `Valor Total ME = 0`.")
-            
-        # --- FIN DEL BLOQUE INSPECTOR ---
  
         st.success("¡Procesamiento completado con éxito!")
         
