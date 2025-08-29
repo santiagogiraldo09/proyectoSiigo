@@ -34,6 +34,47 @@ def procesar_excel_para_streamlit(uploaded_file):
 
         df_procesado = df.copy()
 
+        def limpiar_y_convertir_a_numero(columna):
+            """
+            Toma una columna de pandas, la limpia de formatos comunes (comas/puntos)
+            y la convierte a un tipo de dato numérico.
+            """
+            if columna.dtype == 'object' or pd.api.types.is_string_dtype(columna):
+                # Convertir a texto para poder usar métodos .str
+                columna_texto = columna.astype(str)
+                # 1. Quitar separadores de miles (puntos y comas)
+                #    Ej: "1,500,000.25" -> "1500000.25" | "1.500.000,25" -> "1500000,25"
+                #    Para ser más robustos, primero quitamos la coma de miles
+                columna_texto = columna_texto.str.replace(',', '', regex=False)
+
+                # 2. Asumimos que la coma restante es decimal y la reemplazamos por punto
+                #    Esta línea es específica para formatos donde la coma es el decimal.
+                #    Como la coma de miles ya fue removida, esta acción es más segura.
+                #    Ej: "1500000,25" -> "1500000.25"
+                #    (Esta línea puede necesitar ajustarse si el formato es muy variado)
+                
+                # Para ser más seguro, vamos a manejar ambos casos. 
+                # Primero removemos comas de miles.
+                columna_texto = columna.astype(str).str.replace(',', '', regex=False)
+                
+                # Convertimos a numérico. Esto funcionará para "4042.50" pero fallará para "4042,5"
+                # Para solucionar esto, es mejor tener una estrategia única.
+                # Estrategia Final: Asumir que la coma es decimal y el punto de miles.
+                columna_texto = columna.astype(str)
+                columna_texto = columna_texto.str.replace('.', '', regex=False) # Quita puntos de miles
+                columna_texto = columna_texto.str.replace(',', '.', regex=False) # Cambia coma decimal a punto
+                
+                return pd.to_numeric(columna_texto, errors='coerce')
+            return pd.to_numeric(columna, errors='coerce')
+
+
+        # --- APLICAR LIMPIEZA ANTES DE CUALQUIER CÁLCULO ---
+        st.info("Estandarizando formatos numéricos...")
+        columnas_a_limpiar = ['Cantidad', 'Valor unitario', 'Tasa de cambio']
+        for col_nombre in columnas_a_limpiar:
+            if col_nombre in df_procesado.columns:
+                df_procesado[col_nombre] = limpiar_y_convertir_a_numero(df_procesado[col_nombre])
+
         # Columnas a eliminar predefinidas
         nombres_columnas_a_eliminar = [
             "Sucursal",
