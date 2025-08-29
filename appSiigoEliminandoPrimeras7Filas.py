@@ -4,6 +4,71 @@ import time
 import io
 import numpy as np
 
+# --- INICIO DE LA HERRAMIENTA DE DIAGNÓSTICO AVANZADA ---
+def diagnosticar_problemas_de_conversion(uploaded_file):
+    """
+    Lee un archivo de Excel y muestra los valores exactos que fallan al
+    intentar convertirlos a números en las columnas clave.
+    """
+    st.header("🕵️‍♂️ Herramienta de Diagnóstico de Tipos de Datos")
+    st.info("Esta herramienta te ayudará a encontrar los valores exactos que están causando problemas de conversión en tus columnas numéricas.")
+
+    try:
+        df = pd.read_excel(uploaded_file, skiprows=7)
+        st.success("Archivo leído correctamente. Analizando columnas...")
+
+        columnas_a_revisar = ['Cantidad', 'Valor unitario', 'Tasa de cambio']
+        hay_problemas = False
+
+        for columna in columnas_a_revisar:
+            st.subheader(f"Análisis de la columna: `{columna}`")
+
+            if columna not in df.columns:
+                st.warning(f"La columna '{columna}' no fue encontrada en el archivo.")
+                continue
+
+            # Forzar la columna a string para un análisis consistente
+            # y eliminar filas vacías que no aportan información
+            col_texto = df[columna].dropna().astype(str)
+
+            # Intentar la conversión numérica directa
+            col_numerica = pd.to_numeric(col_texto, errors='coerce')
+
+            # Encontrar los valores que fallaron la conversión (se volvieron NaT/NaN)
+            fallos_mask = col_numerica.isna()
+            valores_problematicos = col_texto[fallos_mask].unique()
+
+            if len(valores_problematicos) > 0:
+                hay_problemas = True
+                st.error(f"Se encontraron {len(valores_problematicos)} valores únicos en `{columna}` que NO se pueden convertir a número:")
+                
+                df_diag = pd.DataFrame({
+                    'Valor Original Problemático': valores_problematicos
+                })
+                
+                # Aplicar la lógica de limpieza propuesta para ver qué hace
+                texto_limpio = pd.Series(valores_problematicos).astype(str).str.strip()
+                texto_limpio = texto_limpio.str.replace(',', '.', regex=False)
+                texto_limpio = texto_limpio.str.replace(r'\.(?=[^.]*\.)', '', regex=True)
+                
+                df_diag['Resultado Tras Limpieza'] = texto_limpio
+                df_diag['¿Se Convierte a Número?'] = pd.to_numeric(texto_limpio, errors='coerce').notna()
+
+                st.dataframe(df_diag)
+                st.warning(f"Observa la tabla de `{columna}`. Si la columna '¿Se Convierte a Número?' muestra 'False', entonces los valores originales tienen un formato que la limpieza actual no resuelve.")
+
+            else:
+                st.success(f"¡Buenas noticias! Todos los valores en la columna `{columna}` se convierten a número correctamente.")
+        
+        if not hay_problemas:
+            st.balloons()
+            st.success("¡Diagnóstico completado! Parece que todas las columnas clave se pueden convertir a números sin problemas.")
+
+
+    except Exception as e:
+        st.error(f"Ocurrió un error durante el diagnóstico: {e}")
+# --- FIN DE LA HERRAMIENTA DE DIAGNÓSTICO ---
+
 
 # --- Función Principal de Procesamiento ---
 def procesar_excel_para_streamlit(uploaded_file):
@@ -324,26 +389,31 @@ df_result = None
 if uploaded_file is not None:
     st.success(f"Archivo **'{uploaded_file.name}'** cargado correctamente.")
     
-    if st.button("Iniciar Procesamiento"):
-        with st.spinner("Procesando tu archivo... Esto puede tardar unos minutos, especialmente al consultar la TRM..."):
-            df_result = procesar_excel_para_streamlit(uploaded_file)
+    # --- CÓDIGO MODIFICADO PARA DIAGNÓSTICO ---
+    # Llama a la herramienta de diagnóstico directamente al subir el archivo
+    # No necesitas presionar un botón.
+    diagnosticar_problemas_de_conversion(uploaded_file)
+    
+    #if st.button("Iniciar Procesamiento"):
+        #with st.spinner("Procesando tu archivo... Esto puede tardar unos minutos, especialmente al consultar la TRM..."):
+            #df_result = procesar_excel_para_streamlit(uploaded_file)
         
-        if df_result is not None:
-            st.subheader("Vista previa del archivo procesado:")
-            st.dataframe(df_result.head())
+        #if df_result is not None:
+            #st.subheader("Vista previa del archivo procesado:")
+            #st.dataframe(df_result.head())
 
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_result.to_excel(writer, index=False, sheet_name='Procesado')
-            processed_data = output.getvalue()
+            #output = io.BytesIO()
+            #with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                #df_result.to_excel(writer, index=False, sheet_name='Procesado')
+            #processed_data = output.getvalue()
 
-            st.download_button(
-                label="Descargar Archivo Procesado",
-                data=processed_data,
-                file_name=f"procesado_{uploaded_file.name}",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            st.info("Tu archivo ha sido procesado y está listo para descargar.")
+            #st.download_button(
+                #label="Descargar Archivo Procesado",
+                #data=processed_data,
+                #file_name=f"procesado_{uploaded_file.name}",
+                #mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            #)
+            #st.info("Tu archivo ha sido procesado y está listo para descargar.")
 else:
     st.info("Por favor, sube un archivo Excel para comenzar.")
 
