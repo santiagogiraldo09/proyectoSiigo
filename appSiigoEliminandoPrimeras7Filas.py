@@ -1,8 +1,105 @@
 import streamlit as st
 import pandas as pd
-import time
 import io
 import numpy as np
+import locale
+from datetime import datetime
+import requests
+from msal import ConfidentialClientApplication
+
+# ==============================================================================
+# SECCIÓN 1: CONFIGURACIÓN DE SHAREPOINT Y AZURE
+# ==============================================================================
+CLIENT_ID = "b469ba00-b7b6-434c-91bf-d3481c171da5"
+CLIENT_SECRET = "8nS8Q~tAYqkeISRUQyOBBAsLn6b_Z8LdNQR23dnn"
+TENANT_ID = "f20cbde7-1c45-44a0-89c5-63a25c557ef8"
+SHAREPOINT_HOSTNAME = "iacsas.sharepoint.com"
+SITE_NAME = "Pruebas proyectos santiago"
+
+# ==============================================================================
+# SECCIÓN 2: FUNCIONES DE AUTENTICACIÓN Y CONEXIÓN
+# ==============================================================================
+AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+SCOPES = ["https://graph.microsoft.com/.default"]
+
+def get_access_token():
+    app = ConfidentialClientApplication(
+        client_id=CLIENT_ID,
+        authority=AUTHORITY,
+        client_credential=CLIENT_SECRET
+    )
+    result = app.acquire_token_for_client(scopes=SCOPES)
+    if "access_token" in result:
+        return result['access_token']
+    else:
+        st.error(f"Error al obtener token: {result.get('error_description')}")
+        return None
+
+def get_sharepoint_site_id(access_token):
+    headers = {'Authorization': f'Bearer {access_token}'}
+    site_url = f"https://graph.microsoft.com/v1.0/sites/{SHAREPOINT_HOSTNAME}:/sites/{SITE_NAME}"
+    try:
+        response = requests.get(site_url, headers=headers)
+        response.raise_for_status()
+        return response.json().get('id')
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error al obtener site_id: {e.response.text}")
+        return None
+    
+def verificar_archivo_por_ruta(site_id, headers, ruta_archivo):
+    """
+    Verifica si un archivo o carpeta existe en una ruta específica.
+    """
+    st.info(f"Verificando ruta fija: '{ruta_archivo}'...")
+    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}"
+    try:
+        response = requests.get(endpoint, headers=headers)
+        if response.status_code == 200:
+            st.success(f"✅ Ruta encontrada: '{ruta_archivo}'")
+            return True
+        else:
+            st.warning(f"⚠️ No se encontró la ruta: '{ruta_archivo}'")
+            return False
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error de conexión al verificar la ruta fija: {e}")
+        return False
+
+def encontrar_archivo_del_mes_en_carpeta(site_id, headers, ruta_carpeta):
+    """
+    Busca dentro de una CARPETA específica un archivo del mes actual.
+    """
+    try:
+        locale.setlocale(locale.LC_TIME, 'es_CO.UTF-8')
+        fecha_actual = datetime.now()
+        mes_nombre = fecha_actual.strftime('%B')
+        mes_numero = fecha_actual.month
+        
+        st.info(f"Buscando archivo de '{mes_nombre.capitalize()}' en la carpeta: '{ruta_carpeta}'...")
+        
+        # MODIFICACIÓN CLAVE: Buscamos dentro de la carpeta especificada
+        search_endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/search(q='{mes_nombre}')"
+        
+        response = requests.get(search_endpoint, headers=headers)
+        response.raise_for_status()
+        search_results = response.json()
+        
+        for item in search_results.get('value', []):
+            nombre_archivo = item.get('name', '')
+            if mes_nombre.lower() in nombre_archivo.lower() and str(mes_numero) in nombre_archivo:
+                st.success(f"✅ Archivo del mes encontrado: {nombre_archivo}")
+                ruta_relativa = item.get('parentReference', {}).get('path', '').split('root:')[-1]
+                ruta_completa = f"{ruta_relativa}/{nombre_archivo}"
+                return nombre_archivo, ruta_completa
+        
+        st.warning(f"⚠️ No se encontró archivo para '{mes_nombre.capitalize()}' en la carpeta especificada.")
+        return None, None
+
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text}")
+        return None, None
+    except Exception as e:
+        st.error(f"Error inesperado durante la búsqueda del mes: {e}")
+        return None, None
 
 
 # --- Función Principal de Procesamiento ---
@@ -353,4 +450,64 @@ if uploaded_file is not None:
 else:
     st.info("Por favor, sube un archivo Excel para comenzar.")
 
+# --- PASO 1: ENTRADA DE DATOS Y VERIFICACIÓN ---
+st.header("1. Verificación de Archivos en SharePoint")
 
+# Usamos st.session_state para guardar el estado de la conexión
+if 'conectado' not in st.session_state:
+    st.session_state.conectado = False
+    st.session_state.headers = None
+    st.session_state.site_id = None
+    st.session_state.verificacion_exitosa = False
+
+# Inputs para las rutas de los archivos
+ruta_fija = st.text_input(
+    "Ruta completa del archivo FIJO en SharePoint",
+    "Documentos Compartidos/Reportes/ArchivoFijo.xlsx"
+)
+ruta_carpeta_mensual = st.text_input(
+    "Ruta de la CARPETA que contiene los archivos mensuales",
+    "Documentos Compartidos/ReportesMensuales"
+)
+
+if st.button("Conectar y Verificar Archivos"):
+    with st.spinner("Autenticando y buscando archivos..."):
+        token = get_access_token()
+        if token:
+            st.session_state.headers = {'Authorization': f'Bearer {token}'}
+            st.session_state.site_id = get_sharepoint_site_id(token)
+            st.session_state.conectado = True
+        
+        if st.session_state.conectado:
+            # Realizar ambas verificaciones
+            check1 = verificar_archivo_por_ruta(st.session_state.site_id, st.session_state.headers, ruta_fija)
+            nombre_mes, ruta_mes = encontrar_archivo_del_mes_en_carpeta(st.session_state.site_id, st.session_state.headers, ruta_carpeta_mensual)
+            
+            # Si ambas verificaciones son exitosas, actualizamos el estado
+            if check1 and nombre_mes:
+                st.session_state.verificacion_exitosa = True
+                st.balloons()
+            else:
+                st.session_state.verificacion_exitosa = False
+                st.error("Una o ambas verificaciones de archivos fallaron. Revisa las rutas y los archivos en SharePoint.")
+
+# --- PASO 2: PROCESAMIENTO DEL ARCHIVO LOCAL (Solo si la verificación fue exitosa) ---
+if st.session_state.get('verificacion_exitosa'):
+    st.markdown("---")
+    st.header("2. Procesamiento del Archivo Local")
+    st.info("Las verificaciones en SharePoint fueron exitosas. Ahora puedes subir y procesar tu archivo.")
+
+    uploaded_file = st.file_uploader(
+        "Sube tu archivo Excel (.xlsx) para procesar",
+        type=["xlsx"]
+    )
+
+    if uploaded_file is not None:
+        if st.button("Iniciar Procesamiento"):
+            df_result = procesar_excel_para_streamlit(uploaded_file)
+            if df_result is not None:
+                st.dataframe(df_result.head())
+                st.success("Tu archivo ha sido procesado y está listo para los siguientes pasos (ej. ser combinado y subido a SharePoint).")
+                # Aquí iría la lógica para combinar df_result con los datos de SharePoint y subirlos.
+else:
+    st.info("Por favor, introduce las rutas de SharePoint y haz clic en 'Conectar y Verificar' para comenzar.")
