@@ -91,7 +91,7 @@ def encontrar_archivo_del_mes_en_carpeta(site_id, headers, ruta_carpeta):
         # --- SOLUCIÓN: Usar una lista propia para los meses en español ---
         meses_es = [
             "enero", "febrero", "marzo", "abril", "mayo", "junio", 
-            "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+            "julio", "agosto", "Septiembre", "Octubre", "Noviembre", "diciembre"
         ]
         
         fecha_actual = datetime.now()
