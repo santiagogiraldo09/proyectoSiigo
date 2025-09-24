@@ -23,6 +23,7 @@ AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES = ["https://graph.microsoft.com/.default"]
 
 def get_access_token():
+    """Se autentica para obtener un token de acceso."""
     app = ConfidentialClientApplication(
         client_id=CLIENT_ID,
         authority=AUTHORITY,
@@ -30,20 +31,37 @@ def get_access_token():
     )
     result = app.acquire_token_for_client(scopes=SCOPES)
     if "access_token" in result:
+        # MENSAJE DE ÉXITO AÑADIDO
+        st.success("✅ Token de acceso obtenido con éxito.")
         return result['access_token']
     else:
         st.error(f"Error al obtener token: {result.get('error_description')}")
         return None
 
 def get_sharepoint_site_id(access_token):
+    """Obtiene el ID del sitio de SharePoint y confirma el éxito."""
+    if not access_token:
+        return None
+        
     headers = {'Authorization': f'Bearer {access_token}'}
     site_url = f"https://graph.microsoft.com/v1.0/sites/{SHAREPOINT_HOSTNAME}:/sites/{SITE_NAME}"
     try:
         response = requests.get(site_url, headers=headers)
         response.raise_for_status()
-        return response.json().get('id')
+        site_data = response.json()
+        site_id = site_data.get('id')
+        if site_id:
+            # MENSAJE DE ÉXITO AÑADIDO
+            st.success(f"✅ Conexión exitosa con el sitio SharePoint: '{SITE_NAME}'")
+            return site_id
+        else:
+            # ERROR MÁS CLARO
+            st.error("Respuesta de la API exitosa, pero no se encontró un 'id' para el sitio. Verifica que el 'SITE_NAME' sea correcto.")
+            return None
     except requests.exceptions.RequestException as e:
-        st.error(f"Error al obtener site_id: {e.response.text}")
+        st.error(f"Error al obtener site_id. Verifica que 'SHAREPOINT_HOSTNAME' y 'SITE_NAME' son correctos.")
+        # Muestra el error devuelto por el servidor de Microsoft para dar más pistas
+        st.json(e.response.json())
         return None
     
 def verificar_archivo_por_ruta(site_id, headers, ruta_archivo):
@@ -472,24 +490,38 @@ ruta_carpeta_mensual = st.text_input(
 
 if st.button("Conectar y Verificar Archivos"):
     with st.spinner("Autenticando y buscando archivos..."):
+        # Limpiamos el estado anterior para una nueva verificación
+        st.session_state.conectado = False
+        st.session_state.verificacion_exitosa = False
+
         token = get_access_token()
+        
+        # VERIFICACIÓN PASO A PASO
         if token:
             st.session_state.headers = {'Authorization': f'Bearer {token}'}
-            st.session_state.site_id = get_sharepoint_site_id(token)
-            st.session_state.conectado = True
-        
-        if st.session_state.conectado:
-            # Realizar ambas verificaciones
-            check1 = verificar_archivo_por_ruta(st.session_state.site_id, st.session_state.headers, ruta_fija)
-            nombre_mes, ruta_mes = encontrar_archivo_del_mes_en_carpeta(st.session_state.site_id, st.session_state.headers, ruta_carpeta_mensual)
+            site_id = get_sharepoint_site_id(token)
             
-            # Si ambas verificaciones son exitosas, actualizamos el estado
-            if check1 and nombre_mes:
-                st.session_state.verificacion_exitosa = True
-                st.balloons()
-            else:
-                st.session_state.verificacion_exitosa = False
-                st.error("Una o ambas verificaciones de archivos fallaron. Revisa las rutas y los archivos en SharePoint.")
+            if site_id:
+                st.session_state.site_id = site_id
+                st.session_state.conectado = True
+
+    # Esta parte se ejecuta FUERA del spinner para que los mensajes finales sean visibles
+    if st.session_state.conectado:
+        st.markdown("---")
+        st.info("La conexión fue exitosa. Ahora, verificando archivos...")
+        
+        check1 = verificar_archivo_por_ruta(st.session_state.site_id, st.session_state.headers, ruta_fija)
+        nombre_mes, ruta_mes = encontrar_archivo_del_mes_en_carpeta(st.session_state.site_id, st.session_state.headers, ruta_carpeta_mensual)
+        
+        if check1 and nombre_mes:
+            st.session_state.verificacion_exitosa = True
+            st.success("🎉 ¡Todas las verificaciones fueron exitosas!")
+            st.balloons()
+        else:
+            st.session_state.verificacion_exitosa = False
+            st.error("Una o ambas verificaciones de archivos fallaron. Revisa las rutas y los archivos en SharePoint.")
+    else:
+        st.error("El proceso se detuvo porque la conexión con SharePoint falló. Revisa las credenciales y nombres del sitio.")
 
 # --- PASO 2: PROCESAMIENTO DEL ARCHIVO LOCAL (Solo si la verificación fue exitosa) ---
 if st.session_state.get('verificacion_exitosa'):
