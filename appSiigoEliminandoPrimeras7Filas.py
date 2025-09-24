@@ -487,11 +487,11 @@ if 'conectado' not in st.session_state:
 # Inputs para las rutas de los archivos
 ruta_fija = st.text_input(
     "Ruta completa del archivo FIJO en SharePoint",
-    "Shared Documents/01 Archivos Area Administrativa/TRM.xlsx"
+    "Documents/01 Archivos Area Administrativa/TRM.xlsx"
 )
 ruta_carpeta_mensual = st.text_input(
     "Ruta de la CARPETA que contiene los archivos mensuales",
-    "Shared Documents/Ventas con ciudad 2025"
+    "Documents/Ventas con ciudad 2025"
 )
 
 if st.button("Conectar y Verificar Archivos"):
