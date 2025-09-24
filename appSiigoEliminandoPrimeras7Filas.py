@@ -487,7 +487,7 @@ if 'conectado' not in st.session_state:
 # Inputs para las rutas de los archivos
 ruta_fija = st.text_input(
     "Ruta completa del archivo FIJO en SharePoint",
-    "Documentos compartidos/01 Archivos Area Administrativa/TRM.XLSX"
+    "Documentos compartidos/01 Archivos Area Administrativa/TRM.xlsx"
 )
 ruta_carpeta_mensual = st.text_input(
     "Ruta de la CARPETA que contiene los archivos mensuales",
