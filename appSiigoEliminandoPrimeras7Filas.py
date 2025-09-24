@@ -14,7 +14,7 @@ CLIENT_ID = "b469ba00-b7b6-434c-91bf-d3481c171da5"
 CLIENT_SECRET = "8nS8Q~tAYqkeISRUQyOBBAsLn6b_Z8LdNQR23dnn"
 TENANT_ID = "f20cbde7-1c45-44a0-89c5-63a25c557ef8"
 SHAREPOINT_HOSTNAME = "iacsas.sharepoint.com"
-SITE_NAME = "Pruebasproyectossantiago"
+SITE_NAME = "PruebasProyectosSantiago"
 
 # ==============================================================================
 # SECCIÓN 2: FUNCIONES DE AUTENTICACIÓN Y CONEXIÓN
@@ -84,17 +84,23 @@ def verificar_archivo_por_ruta(site_id, headers, ruta_archivo):
 
 def encontrar_archivo_del_mes_en_carpeta(site_id, headers, ruta_carpeta):
     """
-    Busca dentro de una CARPETA específica un archivo del mes actual.
+    Busca dentro de una CARPETA específica un archivo del mes actual,
+    sin depender del locale del servidor.
     """
     try:
-        locale.setlocale(locale.LC_TIME, 'es_CO.UTF-8')
+        # --- SOLUCIÓN: Usar una lista propia para los meses en español ---
+        meses_es = [
+            "enero", "febrero", "marzo", "abril", "mayo", "junio", 
+            "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+        ]
+        
         fecha_actual = datetime.now()
-        mes_nombre = fecha_actual.strftime('%B')
         mes_numero = fecha_actual.month
+        # Obtenemos el nombre del mes de nuestra lista (índice es mes - 1)
+        mes_nombre = meses_es[mes_numero - 1]
         
         st.info(f"Buscando archivo de '{mes_nombre.capitalize()}' en la carpeta: '{ruta_carpeta}'...")
         
-        # MODIFICACIÓN CLAVE: Buscamos dentro de la carpeta especificada
         search_endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/search(q='{mes_nombre}')"
         
         response = requests.get(search_endpoint, headers=headers)
