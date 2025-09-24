@@ -91,7 +91,7 @@ def encontrar_archivo_del_mes_en_carpeta(site_id, headers, ruta_carpeta):
         # --- SOLUCIÓN: Usar una lista propia para los meses en español ---
         meses_es = [
             "enero", "febrero", "marzo", "abril", "mayo", "junio", 
-            "julio", "agosto", "Septiembre", "Octubre", "Noviembre", "diciembre"
+            "julio", "agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
         ]
         
         fecha_actual = datetime.now()
@@ -487,11 +487,11 @@ if 'conectado' not in st.session_state:
 # Inputs para las rutas de los archivos
 ruta_fija = st.text_input(
     "Ruta completa del archivo FIJO en SharePoint",
-    "Documentos/01 Archivos Area Administrativa/TRM.xlsx"
+    "Shared Documents/01 Archivos Area Administrativa/TRM.xlsx"
 )
 ruta_carpeta_mensual = st.text_input(
     "Ruta de la CARPETA que contiene los archivos mensuales",
-    "Documentos/Ventas con ciudad 2025"
+    "Shared Documents/Ventas con ciudad 2025"
 )
 
 if st.button("Conectar y Verificar Archivos"):
