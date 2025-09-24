@@ -14,7 +14,7 @@ CLIENT_ID = "b469ba00-b7b6-434c-91bf-d3481c171da5"
 CLIENT_SECRET = "8nS8Q~tAYqkeISRUQyOBBAsLn6b_Z8LdNQR23dnn"
 TENANT_ID = "f20cbde7-1c45-44a0-89c5-63a25c557ef8"
 SHAREPOINT_HOSTNAME = "iacsas.sharepoint.com"
-SITE_NAME = "Pruebas proyectos santiago"
+SITE_NAME = "Pruebasproyectossantiago"
 
 # ==============================================================================
 # SECCIÓN 2: FUNCIONES DE AUTENTICACIÓN Y CONEXIÓN
