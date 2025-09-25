@@ -92,7 +92,7 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         st.write("1/3 - Descargando archivo existente...")
         response_get = requests.get(endpoint_get, headers=headers)
         response_get.raise_for_status()
-        df_existente = pd.read_excel(io.BytesIO(response_get.content))
+        df_existente = pd.read_excel(io.BytesIO(response_get.content), engine='openpyxl')
         
         st.write("2/3 - Combinando datos...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
