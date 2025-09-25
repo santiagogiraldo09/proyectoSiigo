@@ -6,25 +6,155 @@ import locale
 from datetime import datetime
 import requests
 from msal import ConfidentialClientApplication
-import urllib.parse
-
+import zipfile
 
 # ==============================================================================
-# SECCIÓN 1: CONFIGURACIÓN DE SHAREPOINT Y AZURE
+# CONFIGURACIÓN DE SHAREPOINT Y AZURE
 # ==============================================================================
 CLIENT_ID = "b469ba00-b7b6-434c-91bf-d3481c171da5"
 CLIENT_SECRET = "8nS8Q~tAYqkeISRUQyOBBAsLn6b_Z8LdNQR23dnn"
 TENANT_ID = "f20cbde7-1c45-44a0-89c5-63a25c557ef8"
 SHAREPOINT_HOSTNAME = "iacsas.sharepoint.com"
 SITE_NAME = "PruebasProyectosSantiago"
+RUTA_CARPETA_VENTAS_MENSUALES = "Ventas con ciudad 2025"
 # ==============================================================================
-# SECCIÓN 2: FUNCIONES DE AUTENTICACIÓN Y CONEXIÓN
+# FUNCIONES DE AUTENTICACIÓN Y CONEXIÓN
 # ==============================================================================
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES = ["https://graph.microsoft.com/.default"]
 
-def get_access_token():
-    """Se autentica para obtener un token de acceso."""
+def validar_respuesta_sharepoint(response, nombre_archivo):
+    """
+    Valida que la respuesta de SharePoint sea correcta y contenga un archivo Excel
+    """
+    st.info(f"🔍 Validando respuesta para: {nombre_archivo}")
+    
+    # 1. Verificar código de estado HTTP
+    st.write(f"📊 Código HTTP: {response.status_code}")
+    
+    if response.status_code != 200:
+        st.error(f"❌ Error HTTP {response.status_code}")
+        try:
+            error_json = response.json()
+            st.json(error_json)
+        except:
+            st.error(f"Texto de respuesta: {response.text[:500]}...")
+        return False, "Error HTTP"
+    
+    # 2. Verificar el tamaño del contenido
+    content_length = len(response.content)
+    st.write(f"📏 Tamaño del archivo descargado: {content_length:,} bytes")
+    
+    if content_length == 0:
+        st.error("❌ El archivo está vacío (0 bytes)")
+        return False, "Archivo vacío"
+    
+    if content_length < 100:  # Un Excel válido debe tener al menos algunos cientos de bytes
+        st.warning("⚠️ El archivo es muy pequeño para ser un Excel válido")
+        st.write(f"Contenido recibido: {response.content}")
+        return False, "Archivo muy pequeño"
+    
+    # 3. Verificar el Content-Type si está disponible
+    content_type = response.headers.get('Content-Type', 'No especificado')
+    st.write(f"📋 Content-Type: {content_type}")
+    
+    # 4. Verificar las primeras bytes para asegurar que es un archivo Excel
+    primeros_bytes = response.content[:20]
+    st.write(f"🔢 Primeros 20 bytes (hex): {primeros_bytes.hex()}")
+    
+    # Un archivo Excel (.xlsx) debe comenzar con la signature de ZIP: "PK"
+    if not response.content.startswith(b'PK'):
+        st.error("❌ El archivo no tiene la signature de un archivo ZIP/Excel válido")
+        st.error("Los archivos .xlsx deben comenzar con 'PK' (signature de ZIP)")
+        
+        # Mostrar el inicio del contenido como texto para debug
+        try:
+            inicio_texto = response.content[:200].decode('utf-8', errors='ignore')
+            st.error(f"Inicio del contenido como texto: {inicio_texto}")
+        except:
+            st.error("No se pudo decodificar el inicio del contenido como texto")
+        
+        return False, "Signature inválida"
+    
+    st.success("✅ El archivo parece ser un Excel válido")
+    return True, "Válido"
+
+def obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo):
+    """
+    Descarga un archivo específico de SharePoint con validaciones completas
+    """
+    st.info(f"📥 Descargando archivo: {ruta_archivo}")
+    
+    # Construir el endpoint
+    endpoint_get = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
+    st.write(f"🔗 Endpoint: {endpoint_get}")
+    
+    try:
+        # Realizar la petición
+        response_get = requests.get(endpoint_get, headers=headers)
+        
+        # Validar la respuesta
+        es_valido, mensaje = validar_respuesta_sharepoint(response_get, ruta_archivo.split('/')[-1])
+        
+        if not es_valido:
+            st.error(f"❌ Validación falló: {mensaje}")
+            return None
+        
+        return response_get.content
+        
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Error de red al descargar el archivo: {e}")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error inesperado: {e}")
+        return None
+
+def verificar_archivo_existe_sharepoint(headers, site_id, ruta_archivo):
+    """
+    Verifica si un archivo existe y obtiene sus metadatos antes de descargarlo
+    """
+    st.info(f"🔍 Verificando existencia de: {ruta_archivo}")
+    
+    # Endpoint para obtener metadatos del archivo (sin descargar el contenido)
+    endpoint_metadata = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}"
+    
+    try:
+        response = requests.get(endpoint_metadata, headers=headers)
+        
+        if response.status_code == 200:
+            metadata = response.json()
+            
+            nombre = metadata.get('name', 'Sin nombre')
+            tamano = metadata.get('size', 0)
+            tipo = metadata.get('file', {}).get('mimeType', 'No especificado')
+            modificado = metadata.get('lastModifiedDateTime', 'No especificado')
+            
+            st.success(f"✅ Archivo encontrado: {nombre}")
+            st.write(f"📏 Tamaño: {tamano:,} bytes")
+            st.write(f"📋 Tipo MIME: {tipo}")
+            st.write(f"📅 Última modificación: {modificado}")
+            
+            # Verificar que sea realmente un archivo Excel
+            if tipo and 'spreadsheet' not in tipo.lower() and 'excel' not in tipo.lower():
+                st.warning(f"⚠️ Advertencia: El tipo MIME '{tipo}' no parece ser un Excel")
+            
+            return True, metadata
+        else:
+            st.error(f"❌ Archivo no encontrado. HTTP {response.status_code}")
+            try:
+                error_json = response.json()
+                st.json(error_json)
+            except:
+                st.error(f"Respuesta: {response.text}")
+            return False, None
+            
+    except Exception as e:
+        st.error(f"❌ Error al verificar archivo: {e}")
+        return False, None
+
+
+def get_access_token(status_placeholder):
+    status_placeholder.info("⚙️ Paso 2/5: Autenticando con Microsoft...")
     app = ConfidentialClientApplication(
         client_id=CLIENT_ID,
         authority=AUTHORITY,
@@ -32,7 +162,6 @@ def get_access_token():
     )
     result = app.acquire_token_for_client(scopes=SCOPES)
     if "access_token" in result:
-        # MENSAJE DE ÉXITO AÑADIDO
         st.success("✅ Token de acceso obtenido con éxito.")
         return result['access_token']
     else:
@@ -40,416 +169,202 @@ def get_access_token():
         return None
 
 def get_sharepoint_site_id(access_token):
-    """Obtiene el ID del sitio de SharePoint y confirma el éxito."""
-    if not access_token:
-        return None
-        
     headers = {'Authorization': f'Bearer {access_token}'}
     site_url = f"https://graph.microsoft.com/v1.0/sites/{SHAREPOINT_HOSTNAME}:/sites/{SITE_NAME}"
     try:
         response = requests.get(site_url, headers=headers)
         response.raise_for_status()
-        site_data = response.json()
-        site_id = site_data.get('id')
-        if site_id:
-            # MENSAJE DE ÉXITO AÑADIDO
-            st.success(f"✅ Conexión exitosa con el sitio SharePoint: '{SITE_NAME}'")
-            return site_id
-        else:
-            # ERROR MÁS CLARO
-            st.error("Respuesta de la API exitosa, pero no se encontró un 'id' para el sitio. Verifica que el 'SITE_NAME' sea correcto.")
-            return None
+        site_id = response.json().get('id')
+        st.success(f"✅ Conexión exitosa con el sitio SharePoint: '{SITE_NAME}'")
+        return site_id
     except requests.exceptions.RequestException as e:
-        st.error(f"Error al obtener site_id. Verifica que 'SHAREPOINT_HOSTNAME' y 'SITE_NAME' son correctos.")
-        # Muestra el error devuelto por el servidor de Microsoft para dar más pistas
-        st.json(e.response.json())
+        st.error(f"Error al obtener site_id: {e.response.text}")
         return None
 
-import urllib.parse
-import pandas as pd
-
-def explorar_raiz_sharepoint(site_id, headers):
+def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder):
     """
-    Explora la raíz del drive de SharePoint para ver qué carpetas existen realmente
-    """
-    st.info("🗂️ Explorando la raíz del sitio SharePoint...")
-    
-    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root/children"
-    
-    try:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code == 200:
-            items = response.json().get('value', [])
-            st.success(f"✅ Encontrados {len(items)} elementos en la raíz:")
-            
-            # Crear tabla para mejor visualización
-            data = []
-            for item in items:
-                tipo = "📁 Carpeta" if item.get('folder') else "📄 Archivo"
-                nombre = item.get('name', 'Sin nombre')
-                tamano = item.get('size', 0)
-                fecha = item.get('lastModifiedDateTime', 'N/A')[:10] if item.get('lastModifiedDateTime') else 'N/A'
-                
-                data.append({
-                    'Tipo': tipo,
-                    'Nombre': nombre,
-                    'Tamaño (bytes)': tamano,
-                    'Última modificación': fecha
-                })
-            
-            df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True)
-            return items
-        else:
-            st.error(f"❌ No se pudo explorar la raíz. HTTP {response.status_code}")
-            st.json(response.json())
-            return []
-    except Exception as e:
-        st.error(f"Error al explorar raíz: {e}")
-        return []
-
-def explorar_carpeta_especifica(site_id, headers, ruta_carpeta):
-    """
-    Explora una carpeta específica y muestra su contenido
-    """
-    st.info(f"📂 Explorando carpeta: '{ruta_carpeta}'")
-    ruta_encoded = urllib.parse.quote(ruta_carpeta, safe='/')
-    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_encoded}:/children"
-    
-    try:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code == 200:
-            items = response.json().get('value', [])
-            st.success(f"✅ Encontrados {len(items)} elementos en '{ruta_carpeta}':")
-            
-            # Crear tabla
-            data = []
-            for item in items:
-                tipo = "📁 Carpeta" if item.get('folder') else "📄 Archivo"
-                nombre = item.get('name', 'Sin nombre')
-                tamano = item.get('size', 0)
-                fecha = item.get('lastModifiedDateTime', 'N/A')[:10] if item.get('lastModifiedDateTime') else 'N/A'
-                
-                data.append({
-                    'Tipo': tipo,
-                    'Nombre': nombre,
-                    'Tamaño (bytes)': tamano,
-                    'Última modificación': fecha
-                })
-            
-            df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True)
-            return items
-        else:
-            st.error(f"❌ No se pudo explorar '{ruta_carpeta}'. HTTP {response.status_code}")
-            error_response = response.json()
-            st.json(error_response)
-            return []
-    except Exception as e:
-        st.error(f"Error al explorar carpeta '{ruta_carpeta}': {e}")
-        return []
-
-def buscar_archivo_globalmente(site_id, headers, nombre_archivo):
-    """
-    Busca un archivo específico en todo el sitio SharePoint
-    """
-    st.info(f"🔍 Buscando '{nombre_archivo}' en todo el sitio...")
-    
-    # URL encode del término de búsqueda
-    query_encoded = urllib.parse.quote(nombre_archivo)
-    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root/search(q='{query_encoded}')"
-    
-    try:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code == 200:
-            items = response.json().get('value', [])
-            
-            if items:
-                st.success(f"✅ Se encontraron {len(items)} resultados para '{nombre_archivo}':")
-                
-                data = []
-                for item in items:
-                    tipo = "📁 Carpeta" if item.get('folder') else "📄 Archivo"
-                    nombre = item.get('name', 'Sin nombre')
-                    
-                    # Construir la ruta completa
-                    parent_path = item.get('parentReference', {}).get('path', '')
-                    if parent_path:
-                        # Limpiar la ruta (quitar /drive/root: del inicio)
-                        ruta_limpia = parent_path.replace('/drive/root:', '').replace('/drive/root', '')
-                        ruta_completa = f"{ruta_limpia}/{nombre}" if ruta_limpia else nombre
-                    else:
-                        ruta_completa = nombre
-                    
-                    web_url = item.get('webUrl', 'N/A')
-                    
-                    data.append({
-                        'Tipo': tipo,
-                        'Nombre': nombre,
-                        'Ruta Completa': ruta_completa,
-                        'URL Web': web_url
-                    })
-                
-                df = pd.DataFrame(data)
-                st.dataframe(df, use_container_width=True)
-                return items
-            else:
-                st.warning(f"⚠️ No se encontraron resultados para '{nombre_archivo}'")
-                return []
-        else:
-            st.error(f"❌ Error en búsqueda global. HTTP {response.status_code}")
-            st.json(response.json())
-            return []
-    except Exception as e:
-        st.error(f"Error en búsqueda global: {e}")
-        return []
-
-def probar_nombres_comunes_documentos(site_id, headers):
-    """
-    Prueba nombres comunes para la carpeta de documentos en SharePoint
-    """
-    st.info("🧪 Probando nombres comunes para la carpeta de documentos...")
-    
-    nombres_comunes = [
-        "Shared Documents",
-        "Documents", 
-        "Documentos Compartidos",
-        "Documentos compartidos",
-        "documentos compartidos",
-        "General",
-        "Sitio"
-    ]
-    
-    carpetas_encontradas = []
-    
-    for nombre in nombres_comunes:
-        st.write(f"Probando: '{nombre}'...")
-        ruta_encoded = urllib.parse.quote(nombre, safe='/')
-        endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_encoded}"
-        
-        try:
-            response = requests.get(endpoint, headers=headers)
-            if response.status_code == 200:
-                st.success(f"✅ ¡Encontrada!: '{nombre}'")
-                carpetas_encontradas.append(nombre)
-            else:
-                st.write(f"❌ No existe: '{nombre}'")
-        except Exception as e:
-            st.write(f"❌ Error: '{nombre}' - {e}")
-    
-    return carpetas_encontradas
-
-def generar_rutas_sugeridas(carpetas_documentos, archivo_objetivo="TRM.xlsx"):
-    """
-    Genera rutas sugeridas basadas en las carpetas encontradas
-    """
-    st.info("💡 Rutas sugeridas basadas en carpetas encontradas:")
-    
-    rutas_sugeridas = []
-    
-    for carpeta_base in carpetas_documentos:
-        # Rutas posibles con diferentes variaciones
-        rutas_posibles = [
-            f"{carpeta_base}/01 Archivos Area Administrativa/{archivo_objetivo}",
-            f"{carpeta_base}/Archivos Area Administrativa/{archivo_objetivo}",
-            f"{carpeta_base}/Area Administrativa/{archivo_objetivo}",
-            f"{carpeta_base}/Administrativa/{archivo_objetivo}",
-            f"{carpeta_base}/{archivo_objetivo}"
-        ]
-        
-        rutas_sugeridas.extend(rutas_posibles)
-    
-    for i, ruta in enumerate(rutas_sugeridas, 1):
-        st.code(f"Opción {i}: {ruta}")
-    
-    return rutas_sugeridas
-
-# Función principal de exploración
-def explorador_completo_sharepoint(site_id, headers):
-    """
-    Herramienta completa de exploración de SharePoint
-    """
-    st.header("🔍 Explorador Completo de SharePoint")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["📁 Raíz", "🔍 Búsqueda", "📂 Carpetas", "💡 Sugerencias"])
-    
-    with tab1:
-        st.subheader("Contenido de la Raíz")
-        if st.button("Explorar Raíz del Sitio"):
-            items_raiz = explorar_raiz_sharepoint(site_id, headers)
-    
-    with tab2:
-        st.subheader("Búsqueda Global")
-        archivo_buscar = st.text_input("Nombre del archivo a buscar:", "TRM.xlsx")
-        if st.button("Buscar Archivo"):
-            if archivo_buscar:
-                resultados = buscar_archivo_globalmente(site_id, headers, archivo_buscar)
-    
-    with tab3:
-        st.subheader("Explorar Carpeta Específica")
-        ruta_manual = st.text_input("Ruta de carpeta a explorar:", "")
-        if st.button("Explorar Carpeta") and ruta_manual:
-            explorar_carpeta_especifica(site_id, headers, ruta_manual)
-        
-        st.markdown("---")
-        st.subheader("Probar Nombres Comunes")
-        if st.button("Buscar Carpetas de Documentos Comunes"):
-            carpetas_encontradas = probar_nombres_comunes_documentos(site_id, headers)
-            if carpetas_encontradas:
-                st.success(f"Carpetas encontradas: {carpetas_encontradas}")
-    
-    with tab4:
-        st.subheader("Generador de Rutas")
-        if st.button("Generar Rutas Sugeridas"):
-            # Primero buscar carpetas comunes
-            carpetas_encontradas = probar_nombres_comunes_documentos(site_id, headers)
-            if carpetas_encontradas:
-                generar_rutas_sugeridas(carpetas_encontradas)
-            else:
-                st.warning("No se encontraron carpetas de documentos comunes. Explora la raíz primero.")
-    
-def verificar_archivo_por_ruta(site_id, headers, ruta_archivo):
-    """
-    Verifica si un archivo o carpeta existe en una ruta específica.
-    """
-    st.info(f"Verificando ruta fija: '{ruta_archivo}'...")
-    
-    # MEJORA 1: URL encode de la ruta para manejar espacios y caracteres especiales
-    ruta_encoded = urllib.parse.quote(ruta_archivo, safe='/')
-    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_encoded}"
-    
-    st.info(f"🔍 URL construida: {endpoint}")
-    
-    try:
-        response = requests.get(endpoint, headers=headers)
-        
-        # MEJORA 2: Mejor manejo de errores con más información de debug
-        st.info(f"📊 Código de respuesta HTTP: {response.status_code}")
-        
-        if response.status_code == 200:
-            st.success(f"✅ Ruta encontrada: '{ruta_archivo}'")
-            return True
-        elif response.status_code == 404:
-            st.warning(f"⚠️ Archivo no encontrado: '{ruta_archivo}'")
-            # Mostrar la respuesta de error para más contexto
-            try:
-                error_details = response.json()
-                st.error(f"Detalles del error 404: {error_details}")
-            except:
-                st.error("No se pudo parsear la respuesta de error")
-            return False
-        else:
-            st.error(f"❌ Error HTTP {response.status_code}: {response.text}")
-            return False
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error de conexión al verificar la ruta fija: {e}")
-        return False
-
-def verificar_archivo_alternativo(site_id, headers, ruta_archivo):
-    """
-    Función alternativa que también verifica diferentes formatos de ruta
-    """
-    rutas_a_probar = [
-        ruta_archivo,  # Ruta original
-        ruta_archivo.replace(" ", "%20"),  # Con espacios URL encoded manualmente
-        ruta_archivo.replace("/", "\\"),   # Con backslashes (formato Windows)
-    ]
-    
-    for i, ruta in enumerate(rutas_a_probar):
-        st.info(f"🔄 Probando formato {i+1}: '{ruta}'")
-        ruta_encoded = urllib.parse.quote(ruta, safe='/')
-        endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_encoded}"
-        
-        try:
-            response = requests.get(endpoint, headers=headers)
-            st.info(f"📊 Respuesta para formato {i+1}: HTTP {response.status_code}")
-            
-            if response.status_code == 200:
-                st.success(f"✅ ¡Archivo encontrado con formato {i+1}!: '{ruta}'")
-                return True, ruta
-        except Exception as e:
-            st.warning(f"Error con formato {i+1}: {e}")
-            continue
-    
-    st.error("❌ No se pudo encontrar el archivo con ninguno de los formatos probados")
-    return False, None
-
-def listar_contenido_carpeta(site_id, headers, ruta_carpeta="Documentos compartidos"):
-    """
-    Función auxiliar para listar el contenido de una carpeta y ayudar en debug
-    """
-    st.info(f"📂 Listando contenido de: '{ruta_carpeta}'")
-    ruta_encoded = urllib.parse.quote(ruta_carpeta, safe='/')
-    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_encoded}:/children"
-    
-    try:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code == 200:
-            items = response.json().get('value', [])
-            st.success(f"✅ Encontrados {len(items)} elementos en '{ruta_carpeta}':")
-            
-            for item in items[:10]:  # Mostrar solo los primeros 10 items
-                tipo = "📁" if item.get('folder') else "📄"
-                nombre = item.get('name', 'Sin nombre')
-                st.write(f"{tipo} {nombre}")
-                
-            if len(items) > 10:
-                st.info(f"... y {len(items) - 10} elementos más.")
-            return True
-        else:
-            st.error(f"❌ No se pudo listar la carpeta. HTTP {response.status_code}")
-            return False
-    except Exception as e:
-        st.error(f"Error al listar carpeta: {e}")
-        return False
-
-def encontrar_archivo_del_mes_en_carpeta(site_id, headers, ruta_carpeta):
-    """
-    Busca dentro de una CARPETA específica un archivo del mes actual,
-    sin depender del locale del servidor.
+    Busca dentro de una CARPETA específica y devuelve la RUTA COMPLETA del archivo del mes.
     """
     try:
-        # --- SOLUCIÓN: Usar una lista propia para los meses en español ---
-        meses_es = [
-            "enero", "febrero", "marzo", "abril", "mayo", "junio", 
-            "julio", "agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-        ]
-        
+        # Meses en español con diferentes variaciones
         fecha_actual = datetime.now()
         mes_numero = fecha_actual.month
-        # Obtenemos el nombre del mes de nuestra lista (índice es mes - 1)
-        mes_nombre = meses_es[mes_numero - 1]
         
-        st.info(f"Buscando archivo de '{mes_nombre.capitalize()}' en la carpeta: '{ruta_carpeta}'...")
+        # Diferentes patrones que podría tener el archivo
+        patrones_busqueda = [
+            f"{mes_numero}. ",  # "9. " para septiembre
+            "Septiembre",       # Nombre completo del mes
+            "septiembre",       # Minúscula
+            f"{mes_numero:02d}",# "09" con cero delante
+        ]
         
-        search_endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/search(q='{mes_nombre}')"
+        st.info(f"🔍 Buscando archivo del mes {mes_numero} (Septiembre) en: '{ruta_carpeta}'")
+        st.write(f"Patrones de búsqueda: {patrones_busqueda}")
         
-        response = requests.get(search_endpoint, headers=headers)
-        response.raise_for_status()
-        search_results = response.json()
+        # Primero, listar TODOS los archivos en la carpeta
+        st.write("📂 Listando todos los archivos disponibles:")
+        endpoint_children = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/children"
+        response_list = requests.get(endpoint_children, headers=headers)
         
-        for item in search_results.get('value', []):
-            nombre_archivo = item.get('name', '')
-            if mes_nombre.lower() in nombre_archivo.lower() and str(mes_numero) in nombre_archivo:
-                st.success(f"✅ Archivo del mes encontrado: {nombre_archivo}")
-                ruta_relativa = item.get('parentReference', {}).get('path', '').split('root:')[-1]
-                ruta_completa = f"{ruta_relativa}/{nombre_archivo}"
-                return nombre_archivo, ruta_completa
-        
-        st.warning(f"⚠️ No se encontró archivo para '{mes_nombre.capitalize()}' en la carpeta especificada.")
-        return None, None
-
+        if response_list.status_code == 200:
+            todos_archivos = response_list.json().get('value', [])
+            
+            st.write(f"📊 Total de archivos en la carpeta: {len(todos_archivos)}")
+            
+            # Mostrar todos los archivos para debug
+            for item in todos_archivos:
+                if not item.get('folder'):  # Solo archivos, no carpetas
+                    nombre = item.get('name', '')
+                    tamaño = item.get('size', 0)
+                    st.write(f"📄 {nombre} ({tamaño:,} bytes)")
+            
+            # Buscar el archivo que coincida con los patrones
+            archivos_candidatos = []
+            
+            for item in todos_archivos:
+                if item.get('folder'):  # Saltar carpetas
+                    continue
+                    
+                nombre_archivo = item.get('name', '').lower()
+                
+                # Verificar cada patrón
+                for patron in patrones_busqueda:
+                    if patron.lower() in nombre_archivo:
+                        archivos_candidatos.append({
+                            'nombre_original': item.get('name'),
+                            'ruta_completa': f"{ruta_carpeta}/{item.get('name')}",
+                            'tamaño': item.get('size', 0),
+                            'patron_encontrado': patron
+                        })
+                        break  # Salir del loop de patrones una vez encontrado
+            
+            if archivos_candidatos:
+                st.success(f"✅ Encontrados {len(archivos_candidatos)} archivos candidatos:")
+                
+                for i, candidato in enumerate(archivos_candidatos):
+                    st.write(f"{i+1}. **{candidato['nombre_original']}** ({candidato['tamaño']:,} bytes) - Patrón: '{candidato['patron_encontrado']}'")
+                
+                # Seleccionar el primer candidato (o puedes agregar lógica más sofisticada)
+                archivo_seleccionado = archivos_candidatos[0]
+                st.success(f"🎯 Archivo seleccionado: **{archivo_seleccionado['nombre_original']}**")
+                
+                return archivo_seleccionado['ruta_completa']
+            else:
+                st.warning(f"⚠️ No se encontraron archivos que coincidan con los patrones para el mes {mes_numero}")
+                
+                # Mostrar sugerencia
+                st.info("💡 Archivos disponibles que podrían ser relevantes:")
+                for item in todos_archivos:
+                    if not item.get('folder'):
+                        nombre = item.get('name', '')
+                        if any(char.isdigit() for char in nombre):  # Si contiene números
+                            st.write(f"🤔 {nombre}")
+                
+                return None
+        else:
+            st.error(f"❌ No se pudo listar el contenido de la carpeta. HTTP {response_list.status_code}")
+            return None
+            
     except requests.exceptions.RequestException as e:
-        st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text}")
-        return None, None
+        st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text if e.response else e}")
+        return None
     except Exception as e:
         st.error(f"Error inesperado durante la búsqueda del mes: {e}")
-        return None, None
+        return None
 
+def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
+    st.info(f"🔄 Actualizando el archivo en SharePoint: '{ruta_archivo.split('/')[-1]}'")
+    
+    try:
+        # PASO 1: Verificar que el archivo existe y obtener metadatos
+        st.write("1/4 - Verificando archivo existente...")
+        existe, metadata = verificar_archivo_existe_sharepoint(headers, site_id, ruta_archivo)
+        
+        if not existe:
+            st.error("❌ No se puede continuar: el archivo no existe o no es accesible")
+            return False
+        
+        # PASO 2: Descargar archivo con validaciones
+        st.write("2/4 - Descargando archivo existente...")
+        contenido_archivo = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo)
+        
+        if contenido_archivo is None:
+            st.error("❌ No se pudo descargar el archivo")
+            return False
+        
+        # PASO 3: Intentar leer el Excel con manejo de errores mejorado
+        st.write("3/4 - Leyendo archivo Excel...")
+        try:
+            df_existente = pd.read_excel(io.BytesIO(contenido_archivo), engine='openpyxl')
+            st.success(f"✅ Archivo Excel leído correctamente. Filas existentes: {len(df_existente)}")
+        except zipfile.BadZipFile:
+            st.error("❌ Error: El archivo descargado no es un Excel válido")
+            st.error("Esto puede indicar que el archivo está corrupto o es de otro tipo")
+            return False
+        except Exception as e:
+            st.error(f"❌ Error al leer el archivo Excel: {e}")
+            return False
+        
+        # PASO 4: Combinar datos
+        st.write("4/4 - Combinando y subiendo datos...")
+        df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
+        st.success(f"✅ Datos combinados. Total de filas: {len(df_combinado)}")
+        
+        # Generar archivo Excel actualizado
+        output = io.BytesIO()
+        df_combinado.to_excel(output, index=False, engine='xlsxwriter')
+        output.seek(0)  # Importante: volver al inicio del buffer
+        
+        # Subir archivo actualizado
+        endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
+        headers_upload = headers.copy()
+        headers_upload['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        
+        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers_upload)
+        
+        if response_put.status_code in [200, 201]:
+            st.success("🎉 ¡Éxito! El archivo ha sido actualizado en SharePoint.")
+            return True
+        else:
+            st.error(f"❌ Error al subir archivo. HTTP {response_put.status_code}")
+            try:
+                error_json = response_put.json()
+                st.json(error_json)
+            except:
+                st.error(f"Respuesta: {response_put.text}")
+            return False
+            
+    except Exception as e:
+        st.error(f"❌ Error inesperado en la función: {e}")
+        return False
 
+def listar_archivos_en_carpeta(headers, site_id, ruta_carpeta):
+    """
+    Lista todos los archivos en una carpeta para debug
+    """
+    st.info(f"📂 Explorando carpeta: {ruta_carpeta}")
+    
+    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/children"
+    
+    try:
+        response = requests.get(endpoint, headers=headers)
+        if response.status_code == 200:
+            items = response.json().get('value', [])
+            
+            st.write(f"📊 Encontrados {len(items)} elementos:")
+            for item in items:
+                tipo = "📁" if item.get('folder') else "📄"
+                nombre = item.get('name', 'Sin nombre')
+                tamano = item.get('size', 0)
+                st.write(f"{tipo} {nombre} ({tamano:,} bytes)")
+        else:
+            st.error(f"❌ No se pudo listar la carpeta. HTTP {response.status_code}")
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
+    
+    
 # --- Función Principal de Procesamiento ---
-def procesar_excel_para_streamlit(uploaded_file):
+def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
     """
     Procesa el archivo de Excel subido:
     - Ignora las primeras 7 filas al cargar el archivo (asumiendo que los encabezados están en la fila 8).
@@ -768,20 +683,89 @@ uploaded_file = st.file_uploader(
     help="Arrastra y suelta tu archivo Excel aquí o haz clic para buscar."
 )
 
+st.markdown("---")
+st.header("🔧 Herramientas de Debug para SharePoint")
+
+# Crear variables de prueba para conexión SharePoint
+if st.button("🔗 Probar Conexión SharePoint (Solo Debug)"):
+    with st.spinner("Conectando..."):
+        status_placeholder = st.empty()
+        token = get_access_token(status_placeholder)
+        
+        if token:
+            site_id = get_sharepoint_site_id(token)
+            if site_id:
+                headers = {'Authorization': f'Bearer {token}'}
+                st.session_state.debug_headers = headers
+                st.session_state.debug_site_id = site_id
+                st.success("✅ Conexión establecida para debug")
+
+# Solo mostrar herramientas de debug si hay conexión
+if hasattr(st.session_state, 'debug_headers') and hasattr(st.session_state, 'debug_site_id'):
+    
+    with st.expander("🧪 Debug de Archivos SharePoint", expanded=False):
+        
+        # Debug para la carpeta mensual
+        st.subheader("📅 Debug de Carpeta Mensual")
+        if st.button("Listar archivos en carpeta mensual"):
+            listar_archivos_en_carpeta(st.session_state.debug_headers, st.session_state.debug_site_id, "Ventas con ciudad 2025")
+        
+        # Debug para archivo específico
+        st.subheader("🔍 Debug de Archivo Específico")
+        archivo_debug = st.text_input("Ruta completa del archivo a verificar:", 
+                                     "Ventas con ciudad 2025/Ventas Septiembre 2025.xlsx")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Verificar archivo"):
+                if archivo_debug:
+                    verificar_archivo_existe_sharepoint(st.session_state.debug_headers, st.session_state.debug_site_id, archivo_debug)
+        
+        with col2:
+            if st.button("Intentar descargar"):
+                if archivo_debug:
+                    contenido = obtener_contenido_archivo_sharepoint(st.session_state.debug_headers, st.session_state.debug_site_id, archivo_debug)
+                    if contenido:
+                        st.success(f"Archivo descargado exitosamente ({len(contenido):,} bytes)")
+
+st.markdown("---")
+
 df_result = None
+
 
 if uploaded_file is not None:
     st.success(f"Archivo **'{uploaded_file.name}'** cargado correctamente.")
     
     if st.button("Iniciar Procesamiento"):
+        # Crear el placeholder una sola vez
+        status_placeholder = st.empty()
         with st.spinner("Procesando tu archivo... Esto puede tardar unos minutos, especialmente al consultar la TRM..."):
-            df_result = procesar_excel_para_streamlit(uploaded_file)
+            df_result = procesar_excel_para_streamlit(uploaded_file, status_placeholder)
         
         if df_result is not None:
             st.subheader("Vista previa del archivo procesado:")
             st.dataframe(df_result.head())
 
             output = io.BytesIO()
+            # 2. Conectarse a SharePoint
+            token = get_access_token(status_placeholder)
+            if token:
+                
+                site_id = get_sharepoint_site_id(token) # Esta función es rápida, no necesita placeholder
+
+                if site_id:
+                    # Una vez que tenemos el site_id, AHORA creamos los headers para las siguientes funciones
+                    headers = {'Authorization': f'Bearer {token}'}
+                    # 3. Encontrar el archivo del mes
+                    ruta_archivo_mensual = encontrar_archivo_del_mes(headers, site_id, RUTA_CARPETA_VENTAS_MENSUALES, status_placeholder)
+                    
+                    if ruta_archivo_mensual:
+                        # 4. Agregar los datos
+                        #agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo_mensual, df_result, status_placeholder)
+                        exito = agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo_mensual, df_result, status_placeholder)
+                        if exito:
+                            st.balloons()
+            
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df_result.to_excel(writer, index=False, sheet_name='Procesado')
             processed_data = output.getvalue()
@@ -795,173 +779,6 @@ if uploaded_file is not None:
             st.info("Tu archivo ha sido procesado y está listo para descargar.")
 else:
     st.info("Por favor, sube un archivo Excel para comenzar.")
-
-# --- PASO 1: ENTRADA DE DATOS Y VERIFICACIÓN ---
-st.header("1. Verificación de Archivos en SharePoint")
-
-# Usamos st.session_state para guardar el estado de la conexión
-if 'conectado' not in st.session_state:
-    st.session_state.conectado = False
-    st.session_state.headers = None
-    st.session_state.site_id = None
-    st.session_state.verificacion_exitosa = False
-
-# Inputs para las rutas de los archivos
-ruta_fija = st.text_input(
-    "Ruta completa del archivo FIJO en SharePoint",
-    "Documentos compartidos/01 Archivos Area Administrativa/TRM.xlsx"
-)
-ruta_carpeta_mensual = st.text_input(
-    "Ruta de la CARPETA que contiene los archivos mensuales",
-    "Documentos compartidos/Ventas con ciudad 2025"
-)
-
-if st.button("Conectar y Verificar Archivos"):
-    with st.spinner("Autenticando y buscando archivos..."):
-        # Limpiamos el estado anterior para una nueva verificación
-        st.session_state.conectado = False
-        st.session_state.verificacion_exitosa = False
-
-        token = get_access_token()
-        
-        # VERIFICACIÓN PASO A PASO
-        if token:
-            st.session_state.headers = {'Authorization': f'Bearer {token}'}
-            site_id = get_sharepoint_site_id(token)
-            
-            if site_id:
-                st.session_state.site_id = site_id
-                st.session_state.conectado = True
-
-# Esta parte se ejecuta FUERA del spinner para que los mensajes finales sean visibles
-if st.session_state.conectado:
-    st.markdown("---")
-    st.success("🎉 ¡Conexión con SharePoint exitosa!")
-    
-    # HERRAMIENTAS DE EXPLORACIÓN
-    explorador_completo_sharepoint(st.session_state.site_id, st.session_state.headers)
-    
-    st.markdown("---")
-    st.header("📋 Verificación Manual de Rutas")
-    st.info("Una vez que hayas encontrado las rutas correctas arriba, ingrésalas aquí:")
-    
-    # Permitir al usuario ingresar las rutas correctas encontradas
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        ruta_fija_corregida = st.text_input(
-            "Ruta CORRECTA del archivo TRM.xlsx:",
-            value=ruta_fija,  # Valor por defecto
-            help="Usa las herramientas de exploración arriba para encontrar la ruta exacta"
-        )
-    
-    with col2:
-        ruta_carpeta_corregida = st.text_input(
-            "Ruta CORRECTA de la carpeta mensual:",
-            value=ruta_carpeta_mensual,  # Valor por defecto
-            help="Carpeta que contiene los archivos mensuales"
-        )
-    
-    # Botón para verificar con las rutas corregidas
-    if st.button("🚀 Verificar con Rutas Correctas"):
-        if ruta_fija_corregida and ruta_carpeta_corregida:
-            with st.spinner("Verificando con las rutas corregidas..."):
-                
-                st.subheader("🔍 Verificando archivo fijo")
-                check1 = verificar_archivo_alternativo(
-                    st.session_state.site_id, 
-                    st.session_state.headers, 
-                    ruta_fija_corregida
-                )[0]
-                
-                st.subheader("📅 Verificando archivo mensual") 
-                nombre_mes, ruta_mes = encontrar_archivo_del_mes_en_carpeta(
-                    st.session_state.site_id, 
-                    st.session_state.headers, 
-                    ruta_carpeta_corregida
-                )
-                
-                if check1 and nombre_mes:
-                    st.session_state.verificacion_exitosa = True
-                    st.success("🎉 ¡Todas las verificaciones fueron exitosas!")
-                    st.balloons()
-                    
-                    # Guardar las rutas correctas en session state
-                    st.session_state.ruta_fija_final = ruta_fija_corregida
-                    st.session_state.ruta_carpeta_final = ruta_carpeta_corregida
-                    st.session_state.nombre_archivo_mes = nombre_mes
-                    st.session_state.ruta_archivo_mes = ruta_mes
-                    
-                    # Mostrar resumen final
-                    st.markdown("---")
-                    st.subheader("📋 Resumen de Rutas Verificadas")
-                    st.success(f"✅ Archivo fijo encontrado: `{ruta_fija_corregida}`")
-                    st.success(f"✅ Archivo mensual encontrado: `{nombre_mes}` en `{ruta_carpeta_corregida}`")
-                    
-                else:
-                    st.session_state.verificacion_exitosa = False
-                    st.error("❌ Una o ambas verificaciones fallaron con las rutas corregidas.")
-                    st.info("💡 Usa las herramientas de exploración arriba para encontrar las rutas exactas.")
-        else:
-            st.warning("⚠️ Por favor, ingresa ambas rutas antes de verificar.")
-
-else:
-    st.error("El proceso se detuvo porque la conexión con SharePoint falló. Revisa las credenciales y nombres del sitio.")
-
-# También agrega esta sección de ayuda al final:
-st.markdown("---")
-st.subheader("❓ Cómo usar las herramientas de exploración")
-
-with st.expander("📖 Guía de uso", expanded=False):
-    st.markdown("""
-    ### Pasos recomendados:
-    
-    1. **🔍 Explorar Raíz**: 
-       - Ve a la pestaña "📁 Raíz" y haz clic en "Explorar Raíz del Sitio"
-       - Esto te mostrará todas las carpetas principales
-    
-    2. **🧪 Probar Nombres Comunes**:
-       - Ve a la pestaña "📂 Carpetas" 
-       - Haz clic en "Buscar Carpetas de Documentos Comunes"
-       - Esto probará nombres típicos como "Shared Documents"
-    
-    3. **🔍 Búsqueda Global**:
-       - Ve a la pestaña "🔍 Búsqueda"
-       - Busca "TRM.xlsx" para encontrar el archivo exacto y su ubicación
-    
-    4. **💡 Generar Sugerencias**:
-       - Ve a la pestaña "💡 Sugerencias"  
-       - Esto generará rutas probables basadas en las carpetas encontradas
-    
-    5. **✅ Verificar**:
-       - Usa las rutas encontradas en la sección "📋 Verificación Manual"
-    
-    ### Errores comunes:
-    - **"Documentos compartidos"** a menudo es **"Shared Documents"** en inglés
-    - Las rutas son **case-sensitive** (importan mayúsculas/minúsculas)
-    - Los espacios deben coincidir exactamente
-    """)
-
-# --- PASO 2: PROCESAMIENTO DEL ARCHIVO LOCAL (Solo si la verificación fue exitosa) ---
-if st.session_state.get('verificacion_exitosa'):
-    st.markdown("---")
-    st.header("2. Procesamiento del Archivo Local")
-    st.info("Las verificaciones en SharePoint fueron exitosas. Ahora puedes subir y procesar tu archivo.")
-
-    uploaded_file = st.file_uploader(
-        "Sube tu archivo Excel (.xlsx) para procesar",
-        type=["xlsx"]
-    )
-
-    if uploaded_file is not None:
-        if st.button("Iniciar Procesamiento"):
-            df_result = procesar_excel_para_streamlit(uploaded_file)
-            if df_result is not None:
-                st.dataframe(df_result.head())
-                st.success("Tu archivo ha sido procesado y está listo para los siguientes pasos (ej. ser combinado y subido a SharePoint).")
-                # Aquí iría la lógica para combinar df_result con los datos de SharePoint y subirlos.
-else:
-    st.info("Por favor, introduce las rutas de SharePoint y haz clic en 'Conectar y Verificar' para comenzar.")
     
     
 
