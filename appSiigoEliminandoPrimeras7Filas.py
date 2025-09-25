@@ -6,6 +6,7 @@ import locale
 from datetime import datetime
 import requests
 from msal import ConfidentialClientApplication
+import zipfile
 
 # ==============================================================================
 # CONFIGURACIÓN DE SHAREPOINT Y AZURE
@@ -21,6 +22,135 @@ RUTA_CARPETA_VENTAS_MENSUALES = "Ventas con ciudad 2025"
 # ==============================================================================
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES = ["https://graph.microsoft.com/.default"]
+
+def validar_respuesta_sharepoint(response, nombre_archivo):
+    """
+    Valida que la respuesta de SharePoint sea correcta y contenga un archivo Excel
+    """
+    st.info(f"🔍 Validando respuesta para: {nombre_archivo}")
+    
+    # 1. Verificar código de estado HTTP
+    st.write(f"📊 Código HTTP: {response.status_code}")
+    
+    if response.status_code != 200:
+        st.error(f"❌ Error HTTP {response.status_code}")
+        try:
+            error_json = response.json()
+            st.json(error_json)
+        except:
+            st.error(f"Texto de respuesta: {response.text[:500]}...")
+        return False, "Error HTTP"
+    
+    # 2. Verificar el tamaño del contenido
+    content_length = len(response.content)
+    st.write(f"📏 Tamaño del archivo descargado: {content_length:,} bytes")
+    
+    if content_length == 0:
+        st.error("❌ El archivo está vacío (0 bytes)")
+        return False, "Archivo vacío"
+    
+    if content_length < 100:  # Un Excel válido debe tener al menos algunos cientos de bytes
+        st.warning("⚠️ El archivo es muy pequeño para ser un Excel válido")
+        st.write(f"Contenido recibido: {response.content}")
+        return False, "Archivo muy pequeño"
+    
+    # 3. Verificar el Content-Type si está disponible
+    content_type = response.headers.get('Content-Type', 'No especificado')
+    st.write(f"📋 Content-Type: {content_type}")
+    
+    # 4. Verificar las primeras bytes para asegurar que es un archivo Excel
+    primeros_bytes = response.content[:20]
+    st.write(f"🔢 Primeros 20 bytes (hex): {primeros_bytes.hex()}")
+    
+    # Un archivo Excel (.xlsx) debe comenzar con la signature de ZIP: "PK"
+    if not response.content.startswith(b'PK'):
+        st.error("❌ El archivo no tiene la signature de un archivo ZIP/Excel válido")
+        st.error("Los archivos .xlsx deben comenzar con 'PK' (signature de ZIP)")
+        
+        # Mostrar el inicio del contenido como texto para debug
+        try:
+            inicio_texto = response.content[:200].decode('utf-8', errors='ignore')
+            st.error(f"Inicio del contenido como texto: {inicio_texto}")
+        except:
+            st.error("No se pudo decodificar el inicio del contenido como texto")
+        
+        return False, "Signature inválida"
+    
+    st.success("✅ El archivo parece ser un Excel válido")
+    return True, "Válido"
+
+def obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo):
+    """
+    Descarga un archivo específico de SharePoint con validaciones completas
+    """
+    st.info(f"📥 Descargando archivo: {ruta_archivo}")
+    
+    # Construir el endpoint
+    endpoint_get = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
+    st.write(f"🔗 Endpoint: {endpoint_get}")
+    
+    try:
+        # Realizar la petición
+        response_get = requests.get(endpoint_get, headers=headers)
+        
+        # Validar la respuesta
+        es_valido, mensaje = validar_respuesta_sharepoint(response_get, ruta_archivo.split('/')[-1])
+        
+        if not es_valido:
+            st.error(f"❌ Validación falló: {mensaje}")
+            return None
+        
+        return response_get.content
+        
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Error de red al descargar el archivo: {e}")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error inesperado: {e}")
+        return None
+
+def verificar_archivo_existe_sharepoint(headers, site_id, ruta_archivo):
+    """
+    Verifica si un archivo existe y obtiene sus metadatos antes de descargarlo
+    """
+    st.info(f"🔍 Verificando existencia de: {ruta_archivo}")
+    
+    # Endpoint para obtener metadatos del archivo (sin descargar el contenido)
+    endpoint_metadata = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}"
+    
+    try:
+        response = requests.get(endpoint_metadata, headers=headers)
+        
+        if response.status_code == 200:
+            metadata = response.json()
+            
+            nombre = metadata.get('name', 'Sin nombre')
+            tamano = metadata.get('size', 0)
+            tipo = metadata.get('file', {}).get('mimeType', 'No especificado')
+            modificado = metadata.get('lastModifiedDateTime', 'No especificado')
+            
+            st.success(f"✅ Archivo encontrado: {nombre}")
+            st.write(f"📏 Tamaño: {tamano:,} bytes")
+            st.write(f"📋 Tipo MIME: {tipo}")
+            st.write(f"📅 Última modificación: {modificado}")
+            
+            # Verificar que sea realmente un archivo Excel
+            if tipo and 'spreadsheet' not in tipo.lower() and 'excel' not in tipo.lower():
+                st.warning(f"⚠️ Advertencia: El tipo MIME '{tipo}' no parece ser un Excel")
+            
+            return True, metadata
+        else:
+            st.error(f"❌ Archivo no encontrado. HTTP {response.status_code}")
+            try:
+                error_json = response.json()
+                st.json(error_json)
+            except:
+                st.error(f"Respuesta: {response.text}")
+            return False, None
+            
+    except Exception as e:
+        st.error(f"❌ Error al verificar archivo: {e}")
+        return False, None
 
 
 def get_access_token(status_placeholder):
@@ -63,54 +193,138 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
         
         st.info(f"Buscando archivo de '{mes_nombre}' en la carpeta: '{ruta_carpeta}'...")
         
+        # Primero, listar todos los archivos en la carpeta para debug
+        st.write("📂 Archivos disponibles en la carpeta:")
+        listar_archivos_en_carpeta(headers, site_id, ruta_carpeta)
+        
         search_endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/search(q='{mes_nombre}')"
         
         response = requests.get(search_endpoint, headers=headers)
         response.raise_for_status()
         search_results = response.json()
         
+        archivos_encontrados = []
         for item in search_results.get('value', []):
             nombre_archivo = item.get('name', '')
             if mes_nombre.lower() in nombre_archivo.lower():
-                st.success(f"✅ Archivo del mes encontrado: {nombre_archivo}")
-                ruta_completa = f"{ruta_carpeta}/{nombre_archivo}"
-                # --- CAMBIO 1: Devolver solo la ruta ---
-                return ruta_completa
+                archivos_encontrados.append({
+                    'nombre': nombre_archivo,
+                    'ruta_completa': f"{ruta_carpeta}/{nombre_archivo}",
+                    'tamaño': item.get('size', 0),
+                    'tipo': item.get('file', {}).get('mimeType', 'No especificado')
+                })
         
-        st.warning(f"⚠️ No se encontró archivo para '{mes_nombre}' en la carpeta especificada.")
-        # --- CAMBIO 2: Devolver solo un valor en caso de fallo ---
-        return None
+        if archivos_encontrados:
+            st.success(f"✅ Se encontraron {len(archivos_encontrados)} archivos para '{mes_nombre}':")
+            
+            for i, archivo in enumerate(archivos_encontrados):
+                st.write(f"{i+1}. {archivo['nombre']} ({archivo['tamaño']:,} bytes) - {archivo['tipo']}")
+            
+            # Usar el primer archivo encontrado
+            archivo_seleccionado = archivos_encontrados[0]
+            st.success(f"✅ Archivo seleccionado: {archivo_seleccionado['nombre']}")
+            
+            return archivo_seleccionado['ruta_completa']
+        else:
+            st.warning(f"⚠️ No se encontró archivo para '{mes_nombre}' en la carpeta especificada.")
+            return None
+        
     except requests.exceptions.RequestException as e:
-        st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text}")
+        st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text if e.response else e}")
+        return None
+    except Exception as e:
+        st.error(f"Error inesperado durante la búsqueda del mes: {e}")
         return None
 
 def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
     st.info(f"🔄 Actualizando el archivo en SharePoint: '{ruta_archivo.split('/')[-1]}'")
     
-    endpoint_get = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}"
     try:
-        st.write("1/3 - Descargando archivo existente...")
-        response_get = requests.get(endpoint_get, headers=headers)
-        response_get.raise_for_status()
-        df_existente = pd.read_excel(io.BytesIO(response_get.content), engine='openpyxl')
+        # PASO 1: Verificar que el archivo existe y obtener metadatos
+        st.write("1/4 - Verificando archivo existente...")
+        existe, metadata = verificar_archivo_existe_sharepoint(headers, site_id, ruta_archivo)
         
-        st.write("2/3 - Combinando datos...")
+        if not existe:
+            st.error("❌ No se puede continuar: el archivo no existe o no es accesible")
+            return False
+        
+        # PASO 2: Descargar archivo con validaciones
+        st.write("2/4 - Descargando archivo existente...")
+        contenido_archivo = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo)
+        
+        if contenido_archivo is None:
+            st.error("❌ No se pudo descargar el archivo")
+            return False
+        
+        # PASO 3: Intentar leer el Excel con manejo de errores mejorado
+        st.write("3/4 - Leyendo archivo Excel...")
+        try:
+            df_existente = pd.read_excel(io.BytesIO(contenido_archivo), engine='openpyxl')
+            st.success(f"✅ Archivo Excel leído correctamente. Filas existentes: {len(df_existente)}")
+        except zipfile.BadZipFile:
+            st.error("❌ Error: El archivo descargado no es un Excel válido")
+            st.error("Esto puede indicar que el archivo está corrupto o es de otro tipo")
+            return False
+        except Exception as e:
+            st.error(f"❌ Error al leer el archivo Excel: {e}")
+            return False
+        
+        # PASO 4: Combinar datos
+        st.write("4/4 - Combinando y subiendo datos...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
+        st.success(f"✅ Datos combinados. Total de filas: {len(df_combinado)}")
         
-        st.write("3/3 - Subiendo archivo actualizado...")
+        # Generar archivo Excel actualizado
         output = io.BytesIO()
         df_combinado.to_excel(output, index=False, engine='xlsxwriter')
+        output.seek(0)  # Importante: volver al inicio del buffer
         
+        # Subir archivo actualizado
         endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
-        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
-        response_put.raise_for_status()
+        headers_upload = headers.copy()
+        headers_upload['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         
-        st.success(f"🎉 ¡Éxito! El archivo ha sido actualizado en SharePoint.")
-        st.balloons()
-        return True
-    except requests.exceptions.RequestException as e:
-        st.error(f"No se pudo actualizar el archivo. Error del servidor: {e.response.text}")
+        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers_upload)
+        
+        if response_put.status_code in [200, 201]:
+            st.success("🎉 ¡Éxito! El archivo ha sido actualizado en SharePoint.")
+            return True
+        else:
+            st.error(f"❌ Error al subir archivo. HTTP {response_put.status_code}")
+            try:
+                error_json = response_put.json()
+                st.json(error_json)
+            except:
+                st.error(f"Respuesta: {response_put.text}")
+            return False
+            
+    except Exception as e:
+        st.error(f"❌ Error inesperado en la función: {e}")
         return False
+
+def listar_archivos_en_carpeta(headers, site_id, ruta_carpeta):
+    """
+    Lista todos los archivos en una carpeta para debug
+    """
+    st.info(f"📂 Explorando carpeta: {ruta_carpeta}")
+    
+    endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/children"
+    
+    try:
+        response = requests.get(endpoint, headers=headers)
+        if response.status_code == 200:
+            items = response.json().get('value', [])
+            
+            st.write(f"📊 Encontrados {len(items)} elementos:")
+            for item in items:
+                tipo = "📁" if item.get('folder') else "📄"
+                nombre = item.get('name', 'Sin nombre')
+                tamano = item.get('size', 0)
+                st.write(f"{tipo} {nombre} ({tamano:,} bytes)")
+        else:
+            st.error(f"❌ No se pudo listar la carpeta. HTTP {response.status_code}")
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
     
     
 # --- Función Principal de Procesamiento ---
@@ -433,6 +647,53 @@ uploaded_file = st.file_uploader(
     help="Arrastra y suelta tu archivo Excel aquí o haz clic para buscar."
 )
 
+st.markdown("---")
+st.header("🔧 Herramientas de Debug para SharePoint")
+
+# Crear variables de prueba para conexión SharePoint
+if st.button("🔗 Probar Conexión SharePoint (Solo Debug)"):
+    with st.spinner("Conectando..."):
+        status_placeholder = st.empty()
+        token = get_access_token(status_placeholder)
+        
+        if token:
+            site_id = get_sharepoint_site_id(token)
+            if site_id:
+                headers = {'Authorization': f'Bearer {token}'}
+                st.session_state.debug_headers = headers
+                st.session_state.debug_site_id = site_id
+                st.success("✅ Conexión establecida para debug")
+
+# Solo mostrar herramientas de debug si hay conexión
+if hasattr(st.session_state, 'debug_headers') and hasattr(st.session_state, 'debug_site_id'):
+    
+    with st.expander("🧪 Debug de Archivos SharePoint", expanded=False):
+        
+        # Debug para la carpeta mensual
+        st.subheader("📅 Debug de Carpeta Mensual")
+        if st.button("Listar archivos en carpeta mensual"):
+            listar_archivos_en_carpeta(st.session_state.debug_headers, st.session_state.debug_site_id, "Ventas con ciudad 2025")
+        
+        # Debug para archivo específico
+        st.subheader("🔍 Debug de Archivo Específico")
+        archivo_debug = st.text_input("Ruta completa del archivo a verificar:", 
+                                     "Ventas con ciudad 2025/Ventas Septiembre 2025.xlsx")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Verificar archivo"):
+                if archivo_debug:
+                    verificar_archivo_existe_sharepoint(st.session_state.debug_headers, st.session_state.debug_site_id, archivo_debug)
+        
+        with col2:
+            if st.button("Intentar descargar"):
+                if archivo_debug:
+                    contenido = obtener_contenido_archivo_sharepoint(st.session_state.debug_headers, st.session_state.debug_site_id, archivo_debug)
+                    if contenido:
+                        st.success(f"Archivo descargado exitosamente ({len(contenido):,} bytes)")
+
+st.markdown("---")
+
 df_result = None
 
 
@@ -464,8 +725,10 @@ if uploaded_file is not None:
                     
                     if ruta_archivo_mensual:
                         # 4. Agregar los datos
-                        agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo_mensual, df_result, status_placeholder)
-                        st.balloons()
+                        #agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo_mensual, df_result, status_placeholder)
+                        exito = agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo_mensual, df_result, status_placeholder)
+                        if exito:
+                            st.balloons()
             
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df_result.to_excel(writer, index=False, sheet_name='Procesado')
