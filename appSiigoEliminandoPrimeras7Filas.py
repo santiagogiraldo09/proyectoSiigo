@@ -442,7 +442,7 @@ if uploaded_file is not None:
         # Crear el placeholder una sola vez
         status_placeholder = st.empty()
         with st.spinner("Procesando tu archivo... Esto puede tardar unos minutos, especialmente al consultar la TRM..."):
-            df_result = procesar_excel_para_streamlit(uploaded_file)
+            df_result = procesar_excel_para_streamlit(uploaded_file, status_placeholder)
         
         if df_result is not None:
             st.subheader("Vista previa del archivo procesado:")
@@ -456,6 +456,8 @@ if uploaded_file is not None:
                 site_id = get_sharepoint_site_id(headers) # Esta función es rápida, no necesita placeholder
 
                 if site_id:
+                    # Una vez que tenemos el site_id, AHORA creamos los headers para las siguientes funciones
+                    headers = {'Authorization': f'Bearer {token}'}
                     # 3. Encontrar el archivo del mes
                     ruta_archivo_mensual = encontrar_archivo_del_mes(headers, site_id, RUTA_CARPETA_VENTAS_MENSUALES, status_placeholder)
                     
