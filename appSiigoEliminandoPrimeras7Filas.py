@@ -53,7 +53,7 @@ def get_sharepoint_site_id(access_token):
 
 def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder):
     """
-    Busca dentro de una CARPETA específica un archivo que contenga el nombre del mes actual.
+    Busca dentro de una CARPETA específica y devuelve la RUTA COMPLETA del archivo del mes.
     """
     try:
         meses_es = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
@@ -61,7 +61,7 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
         fecha_actual = datetime.now()
         mes_nombre = meses_es[fecha_actual.month - 1]
         
-        st.info(f"Buscando archivo de '{mes_nombre.capitalize()}' en la carpeta: '{ruta_carpeta}'...")
+        st.info(f"Buscando archivo de '{mes_nombre}' en la carpeta: '{ruta_carpeta}'...")
         
         search_endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/search(q='{mes_nombre}')"
         
@@ -73,15 +73,16 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
             nombre_archivo = item.get('name', '')
             if mes_nombre.lower() in nombre_archivo.lower():
                 st.success(f"✅ Archivo del mes encontrado: {nombre_archivo}")
-                # Construimos la ruta relativa para usarla después
                 ruta_completa = f"{ruta_carpeta}/{nombre_archivo}"
-                return nombre_archivo, ruta_completa
+                # --- CAMBIO 1: Devolver solo la ruta ---
+                return ruta_completa
         
-        st.warning(f"⚠️ No se encontró archivo para '{mes_nombre.capitalize()}' en la carpeta especificada.")
-        return None, None
+        st.warning(f"⚠️ No se encontró archivo para '{mes_nombre}' en la carpeta especificada.")
+        # --- CAMBIO 2: Devolver solo un valor en caso de fallo ---
+        return None
     except requests.exceptions.RequestException as e:
         st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text}")
-        return None, None
+        return None
 
 def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
     st.info(f"🔄 Actualizando el archivo en SharePoint: '{ruta_archivo.split('/')[-1]}'")
