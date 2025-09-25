@@ -23,7 +23,8 @@ AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES = ["https://graph.microsoft.com/.default"]
 
 
-def get_access_token():
+def get_access_token(status_placeholder):
+    status_placeholder.info("⚙️ Paso 2/5: Autenticando con Microsoft...")
     app = ConfidentialClientApplication(
         client_id=CLIENT_ID,
         authority=AUTHORITY,
