@@ -83,7 +83,7 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
         st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text}")
         return None, None
 
-def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos):
+def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
     st.info(f"🔄 Actualizando el archivo en SharePoint: '{ruta_archivo.split('/')[-1]}'")
     
     endpoint_get = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}"
