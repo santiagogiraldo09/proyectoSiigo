@@ -186,49 +186,85 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
     Busca dentro de una CARPETA específica y devuelve la RUTA COMPLETA del archivo del mes.
     """
     try:
-        meses_es = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
-                    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        # Meses en español con diferentes variaciones
         fecha_actual = datetime.now()
-        mes_nombre = meses_es[fecha_actual.month - 1]
+        mes_numero = fecha_actual.month
         
-        st.info(f"Buscando archivo de '{mes_nombre}' en la carpeta: '{ruta_carpeta}'...")
+        # Diferentes patrones que podría tener el archivo
+        patrones_busqueda = [
+            f"{mes_numero}. ",  # "9. " para septiembre
+            "Septiembre",       # Nombre completo del mes
+            "septiembre",       # Minúscula
+            f"{mes_numero:02d}",# "09" con cero delante
+        ]
         
-        # Primero, listar todos los archivos en la carpeta para debug
-        st.write("📂 Archivos disponibles en la carpeta:")
-        listar_archivos_en_carpeta(headers, site_id, ruta_carpeta)
+        st.info(f"🔍 Buscando archivo del mes {mes_numero} (Septiembre) en: '{ruta_carpeta}'")
+        st.write(f"Patrones de búsqueda: {patrones_busqueda}")
         
-        search_endpoint = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/search(q='{mes_nombre}')"
+        # Primero, listar TODOS los archivos en la carpeta
+        st.write("📂 Listando todos los archivos disponibles:")
+        endpoint_children = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_carpeta}:/children"
+        response_list = requests.get(endpoint_children, headers=headers)
         
-        response = requests.get(search_endpoint, headers=headers)
-        response.raise_for_status()
-        search_results = response.json()
-        
-        archivos_encontrados = []
-        for item in search_results.get('value', []):
-            nombre_archivo = item.get('name', '')
-            if mes_nombre.lower() in nombre_archivo.lower():
-                archivos_encontrados.append({
-                    'nombre': nombre_archivo,
-                    'ruta_completa': f"{ruta_carpeta}/{nombre_archivo}",
-                    'tamaño': item.get('size', 0),
-                    'tipo': item.get('file', {}).get('mimeType', 'No especificado')
-                })
-        
-        if archivos_encontrados:
-            st.success(f"✅ Se encontraron {len(archivos_encontrados)} archivos para '{mes_nombre}':")
+        if response_list.status_code == 200:
+            todos_archivos = response_list.json().get('value', [])
             
-            for i, archivo in enumerate(archivos_encontrados):
-                st.write(f"{i+1}. {archivo['nombre']} ({archivo['tamaño']:,} bytes) - {archivo['tipo']}")
+            st.write(f"📊 Total de archivos en la carpeta: {len(todos_archivos)}")
             
-            # Usar el primer archivo encontrado
-            archivo_seleccionado = archivos_encontrados[0]
-            st.success(f"✅ Archivo seleccionado: {archivo_seleccionado['nombre']}")
+            # Mostrar todos los archivos para debug
+            for item in todos_archivos:
+                if not item.get('folder'):  # Solo archivos, no carpetas
+                    nombre = item.get('name', '')
+                    tamaño = item.get('size', 0)
+                    st.write(f"📄 {nombre} ({tamaño:,} bytes)")
             
-            return archivo_seleccionado['ruta_completa']
+            # Buscar el archivo que coincida con los patrones
+            archivos_candidatos = []
+            
+            for item in todos_archivos:
+                if item.get('folder'):  # Saltar carpetas
+                    continue
+                    
+                nombre_archivo = item.get('name', '').lower()
+                
+                # Verificar cada patrón
+                for patron in patrones_busqueda:
+                    if patron.lower() in nombre_archivo:
+                        archivos_candidatos.append({
+                            'nombre_original': item.get('name'),
+                            'ruta_completa': f"{ruta_carpeta}/{item.get('name')}",
+                            'tamaño': item.get('size', 0),
+                            'patron_encontrado': patron
+                        })
+                        break  # Salir del loop de patrones una vez encontrado
+            
+            if archivos_candidatos:
+                st.success(f"✅ Encontrados {len(archivos_candidatos)} archivos candidatos:")
+                
+                for i, candidato in enumerate(archivos_candidatos):
+                    st.write(f"{i+1}. **{candidato['nombre_original']}** ({candidato['tamaño']:,} bytes) - Patrón: '{candidato['patron_encontrado']}'")
+                
+                # Seleccionar el primer candidato (o puedes agregar lógica más sofisticada)
+                archivo_seleccionado = archivos_candidatos[0]
+                st.success(f"🎯 Archivo seleccionado: **{archivo_seleccionado['nombre_original']}**")
+                
+                return archivo_seleccionado['ruta_completa']
+            else:
+                st.warning(f"⚠️ No se encontraron archivos que coincidan con los patrones para el mes {mes_numero}")
+                
+                # Mostrar sugerencia
+                st.info("💡 Archivos disponibles que podrían ser relevantes:")
+                for item in todos_archivos:
+                    if not item.get('folder'):
+                        nombre = item.get('name', '')
+                        if any(char.isdigit() for char in nombre):  # Si contiene números
+                            st.write(f"🤔 {nombre}")
+                
+                return None
         else:
-            st.warning(f"⚠️ No se encontró archivo para '{mes_nombre}' en la carpeta especificada.")
+            st.error(f"❌ No se pudo listar el contenido de la carpeta. HTTP {response_list.status_code}")
             return None
-        
+            
     except requests.exceptions.RequestException as e:
         st.error(f"Error de conexión al buscar el archivo del mes: {e.response.text if e.response else e}")
         return None
