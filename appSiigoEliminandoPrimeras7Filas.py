@@ -113,7 +113,7 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
     
     
 # --- Función Principal de Procesamiento ---
-def procesar_excel_para_streamlit(uploaded_file):
+def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
     """
     Procesa el archivo de Excel subido:
     - Ignora las primeras 7 filas al cargar el archivo (asumiendo que los encabezados están en la fila 8).
