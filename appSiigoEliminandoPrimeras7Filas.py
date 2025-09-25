@@ -51,7 +51,7 @@ def get_sharepoint_site_id(access_token):
         st.error(f"Error al obtener site_id: {e.response.text}")
         return None
 
-def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta):
+def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder):
     """
     Busca dentro de una CARPETA específica un archivo que contenga el nombre del mes actual.
     """
