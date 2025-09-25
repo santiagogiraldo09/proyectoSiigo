@@ -452,8 +452,8 @@ if uploaded_file is not None:
             # 2. Conectarse a SharePoint
             token = get_access_token(status_placeholder)
             if token:
-                headers = {'Authorization': f'Bearer {token}'}
-                site_id = get_sharepoint_site_id(headers) # Esta función es rápida, no necesita placeholder
+                
+                site_id = get_sharepoint_site_id(token) # Esta función es rápida, no necesita placeholder
 
                 if site_id:
                     # Una vez que tenemos el site_id, AHORA creamos los headers para las siguientes funciones
