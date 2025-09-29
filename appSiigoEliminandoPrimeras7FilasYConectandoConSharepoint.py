@@ -26,34 +26,52 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
-    Actualiza la hoja "Datos" del TRM.xlsx preservando fórmulas, formatos y otras hojas.
-    También evita las columnas "Unnamed:".
+    Actualiza la hoja "Datos" del TRM.xlsx de forma segura, preservando formatos y hojas,
+    y utilizando las funciones de validación para evitar errores con archivos corruptos.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización avanzada de la hoja '{nombre_hoja_destino}'...")
 
     try:
-        # PASO 1: Descargar el archivo TRM
-        status_placeholder.info("1/4 - Descargando archivo TRM...")
-        endpoint_get = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo_trm}"
-        response_get = requests.get(endpoint_get, headers=headers)
-        response_get.raise_for_status()
-        contenido_trm = io.BytesIO(response_get.content)
+        # PASO 1: Verificar que el archivo TRM existe y es accesible (REUTILIZANDO TUS FUNCIONES)
+        status_placeholder.info("1/5 - Verificando metadatos del archivo TRM...")
+        existe, metadata = verificar_archivo_existe_sharepoint(headers, site_id, ruta_archivo_trm)
+        if not existe:
+            status_placeholder.error("❌ No se puede continuar: el archivo TRM no fue encontrado.")
+            return False
 
-        # PASO 2: Leer los datos y preparar el nuevo bloque
-        status_placeholder.info("2/4 - Leyendo datos existentes y preparando nuevas filas...")
-        df_trm_existente = pd.read_excel(contenido_trm, sheet_name=nombre_hoja_destino, engine='openpyxl')
+        # PASO 2: Descargar el contenido con validaciones avanzadas (REUTILIZANDO TUS FUNCIONES)
+        status_placeholder.info("2/5 - Descargando y validando el contenido del archivo TRM...")
+        contenido_trm_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
+        if contenido_trm_bytes is None:
+            status_placeholder.error("❌ Falla en la descarga o validación del archivo TRM.")
+            return False
+        
+        contenido_trm = io.BytesIO(contenido_trm_bytes)
+
+        # PASO 3: Cargar el libro de trabajo con openpyxl (ahora sabemos que es seguro hacerlo)
+        status_placeholder.info("3/5 - Modificando el archivo Excel en memoria...")
+        libro = openpyxl.load_workbook(contenido_trm)
+        
+        if nombre_hoja_destino not in libro.sheetnames:
+            status_placeholder.error(f"❌ No se encontró la hoja de destino '{nombre_hoja_destino}'.")
+            return False
+        
+        # Leer los datos de la hoja específica en un DataFrame
+        df_trm_existente = pd.read_excel(io.BytesIO(contenido_trm_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_trm_existente.reset_index(drop=True, inplace=True)
         
-        # Lógica para crear el bloque de datos a agregar (columnas A,B,C en blanco)
+        # PASO 4: Preparar los nuevos datos y combinarlos
+        status_placeholder.info("4/5 - Preparando y combinando los nuevos datos...")
+        # (Aquí va la misma lógica que ya teníamos para crear df_para_agregar y combinar)
         lista_nuevas_filas = []
         nombres_columnas_destino = df_trm_existente.columns
         nombres_columnas_origen = df_datos_procesados.columns
         for index, fila_origen in df_datos_procesados.iterrows():
             nueva_fila = {}
-            nueva_fila[nombres_columnas_destino[0]] = "" # Columna A en blanco
-            nueva_fila[nombres_columnas_destino[1]] = "" # Columna B en blanco
-            nueva_fila[nombres_columnas_destino[2]] = "" # Columna C en blanco
+            nueva_fila[nombres_columnas_destino[0]] = ""
+            nueva_fila[nombres_columnas_destino[1]] = ""
+            nueva_fila[nombres_columnas_destino[2]] = ""
             for i, col_destino in enumerate(nombres_columnas_destino[3:]):
                 if i < len(nombres_columnas_origen):
                     nueva_fila[col_destino] = fila_origen[nombres_columnas_origen[i]]
@@ -62,34 +80,22 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         df_para_agregar = pd.DataFrame(lista_nuevas_filas)
         df_trm_actualizado = pd.concat([df_trm_existente, df_para_agregar], ignore_index=True)
 
-        # --- SOLUCIÓN PARA COLUMNAS "Unnamed:" ---
-        # Busca columnas que empiecen con "Unnamed:" y las elimina.
+        # Limpiar columnas "Unnamed:"
         cols_a_eliminar = [col for col in df_trm_actualizado.columns if 'Unnamed:' in str(col)]
         if cols_a_eliminar:
             df_trm_actualizado.drop(columns=cols_a_eliminar, inplace=True)
-            status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
 
-        # PASO 3: Escribir los datos en el libro de Excel preservando todo lo demás
-        status_placeholder.info("3/4 - Modificando el archivo Excel en memoria...")
-        # Volvemos al inicio del buffer para que openpyxl pueda leerlo
-        contenido_trm.seek(0)
-        
-        # Cargar el libro de trabajo completo con openpyxl
-        libro = openpyxl.load_workbook(contenido_trm)
+        # Escribir los datos actualizados en la hoja de openpyxl
         hoja = libro[nombre_hoja_destino]
-        
-        # Borrar datos antiguos de la hoja (excepto encabezados)
         for r in range(hoja.max_row, 1, -1):
             hoja.delete_rows(r)
-            
-        # Escribir los datos del DataFrame actualizado
         from openpyxl.utils.dataframe import dataframe_to_rows
         for r_idx, row in enumerate(dataframe_to_rows(df_trm_actualizado, index=False, header=False), 2):
             for c_idx, value in enumerate(row, 1):
                 hoja.cell(row=r_idx, column=c_idx, value=value)
-
-        # PASO 4: Guardar el libro modificado y subirlo
-        status_placeholder.info("4/4 - Subiendo archivo final a SharePoint...")
+                
+        # PASO 5: Guardar y subir el libro modificado
+        status_placeholder.info("5/5 - Subiendo el archivo final a SharePoint...")
         output = io.BytesIO()
         libro.save(output)
         
