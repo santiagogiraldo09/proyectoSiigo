@@ -7,6 +7,7 @@ from datetime import datetime
 import requests
 from msal import ConfidentialClientApplication
 import zipfile
+import openpyxl
 
 # ==============================================================================
 # CONFIGURACIÓN DE SHAREPOINT Y AZURE
@@ -25,71 +26,78 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
-    Actualiza la hoja "Datos" del TRM.xlsx de forma segura, manejando índices duplicados.
+    Actualiza la hoja "Datos" del TRM.xlsx preservando fórmulas, formatos y otras hojas.
+    También evita las columnas "Unnamed:".
     """
     nombre_hoja_destino = "Datos"
-    status_placeholder.info(f"🔄 Iniciando actualización de la hoja '{nombre_hoja_destino}' en TRM.xlsx...")
+    status_placeholder.info(f"🔄 Iniciando actualización avanzada de la hoja '{nombre_hoja_destino}'...")
 
     try:
-        # PASO 1: Descargar y leer el archivo TRM
-        status_placeholder.info("1/3 - Descargando y leyendo archivo TRM...")
-        contenido_trm = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
-        if contenido_trm is None: return False
+        # PASO 1: Descargar el archivo TRM
+        status_placeholder.info("1/4 - Descargando archivo TRM...")
+        endpoint_get = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo_trm}"
+        response_get = requests.get(endpoint_get, headers=headers)
+        response_get.raise_for_status()
+        contenido_trm = io.BytesIO(response_get.content)
 
-        libro_excel_completo = pd.read_excel(io.BytesIO(contenido_trm), engine='openpyxl', sheet_name=None)
-        
-        if nombre_hoja_destino not in libro_excel_completo:
-            status_placeholder.error(f"❌ No se encontró la hoja '{nombre_hoja_destino}'.")
-            return False
-            
-        df_trm_existente = libro_excel_completo[nombre_hoja_destino]
-
-        # --- SOLUCIÓN: Forzar un índice único y limpio ---
+        # PASO 2: Leer los datos y preparar el nuevo bloque
+        status_placeholder.info("2/4 - Leyendo datos existentes y preparando nuevas filas...")
+        df_trm_existente = pd.read_excel(contenido_trm, sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_trm_existente.reset_index(drop=True, inplace=True)
-
-        # PASO 2: Preparar el nuevo bloque de datos (LÓGICA SIMPLIFICADA)
-        status_placeholder.info("2/3 - Preparando nuevos datos con formato...")
         
-        # Crear una lista para las nuevas filas
+        # Lógica para crear el bloque de datos a agregar (columnas A,B,C en blanco)
         lista_nuevas_filas = []
-        
-        # Obtener los nombres de las columnas del archivo de destino
         nombres_columnas_destino = df_trm_existente.columns
         nombres_columnas_origen = df_datos_procesados.columns
-
         for index, fila_origen in df_datos_procesados.iterrows():
             nueva_fila = {}
-            # Llenar las 3 primeras columnas con blancos
-            nueva_fila[nombres_columnas_destino[0]] = " "
-            nueva_fila[nombres_columnas_destino[1]] = " "
-            nueva_fila[nombres_columnas_destino[2]] = " "
-            
-            # Llenar el resto de columnas con los datos procesados
+            nueva_fila[nombres_columnas_destino[0]] = "" # Columna A en blanco
+            nueva_fila[nombres_columnas_destino[1]] = "" # Columna B en blanco
+            nueva_fila[nombres_columnas_destino[2]] = "" # Columna C en blanco
             for i, col_destino in enumerate(nombres_columnas_destino[3:]):
                 if i < len(nombres_columnas_origen):
                     nueva_fila[col_destino] = fila_origen[nombres_columnas_origen[i]]
-            
             lista_nuevas_filas.append(nueva_fila)
-
-        # Convertir la lista de filas en un DataFrame de una sola vez
+        
         df_para_agregar = pd.DataFrame(lista_nuevas_filas)
-        
-        # PASO 3: Combinar, escribir y subir el archivo
-        status_placeholder.info("3/3 - Combinando y subiendo el archivo TRM actualizado...")
         df_trm_actualizado = pd.concat([df_trm_existente, df_para_agregar], ignore_index=True)
+
+        # --- SOLUCIÓN PARA COLUMNAS "Unnamed:" ---
+        # Busca columnas que empiecen con "Unnamed:" y las elimina.
+        cols_a_eliminar = [col for col in df_trm_actualizado.columns if 'Unnamed:' in str(col)]
+        if cols_a_eliminar:
+            df_trm_actualizado.drop(columns=cols_a_eliminar, inplace=True)
+            status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
+
+        # PASO 3: Escribir los datos en el libro de Excel preservando todo lo demás
+        status_placeholder.info("3/4 - Modificando el archivo Excel en memoria...")
+        # Volvemos al inicio del buffer para que openpyxl pueda leerlo
+        contenido_trm.seek(0)
         
-        libro_excel_completo[nombre_hoja_destino] = df_trm_actualizado
+        # Cargar el libro de trabajo completo con openpyxl
+        libro = openpyxl.load_workbook(contenido_trm)
+        hoja = libro[nombre_hoja_destino]
         
+        # Borrar datos antiguos de la hoja (excepto encabezados)
+        for r in range(hoja.max_row, 1, -1):
+            hoja.delete_rows(r)
+            
+        # Escribir los datos del DataFrame actualizado
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        for r_idx, row in enumerate(dataframe_to_rows(df_trm_actualizado, index=False, header=False), 2):
+            for c_idx, value in enumerate(row, 1):
+                hoja.cell(row=r_idx, column=c_idx, value=value)
+
+        # PASO 4: Guardar el libro modificado y subirlo
+        status_placeholder.info("4/4 - Subiendo archivo final a SharePoint...")
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            for nombre_hoja, df_hoja in libro_excel_completo.items():
-                df_hoja.to_excel(writer, sheet_name=nombre_hoja, index=False)
+        libro.save(output)
         
         endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo_trm}:/content"
         response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
         response_put.raise_for_status()
 
-        status_placeholder.success("✅ ¡El archivo TRM.xlsx ha sido actualizado!")
+        status_placeholder.success("✅ ¡Archivo TRM actualizado preservando fórmulas y formatos!")
         return True
 
     except Exception as e:
