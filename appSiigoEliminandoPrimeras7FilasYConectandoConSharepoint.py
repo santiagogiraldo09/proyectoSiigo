@@ -526,7 +526,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             "Nombre contacto"
         ]
 
-        df_procesado = df.copy()
+        #df_procesado = df.copy()
 
         # 1. Eliminar filas donde "Tipo clasificación" esté vacío/NaN
         if "Tipo clasificación" in df_procesado.columns:

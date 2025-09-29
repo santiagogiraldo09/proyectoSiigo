@@ -76,7 +76,7 @@ def procesar_excel_para_streamlit(uploaded_file):
             "Fecha vencimiento",
             "Nombre contacto"
         ]
-        df_procesado = df.copy()
+        #df_procesado = df.copy()
         # 1. Eliminar filas donde "Tipo clasificación" esté vacío/NaN
         if "Tipo clasificación" in df_procesado.columns:
             filas_antes_eliminacion = len(df_procesado)
@@ -208,8 +208,8 @@ def procesar_excel_para_streamlit(uploaded_file):
         #Creación de la nueva columna "Vendedor"
         #if 'Vendedor' not in df_procesado.columns:
             #df_procesado['Vendedor'] = ''
-        #if 'Identificación Vendedor' in df_procesado.columns:
-            #df_procesado.drop(columns=['Identificación Vendedor'], inplace=True)
+        if 'Identificación Vendedor' in df_procesado.columns:
+            df_procesado.drop(columns=['Identificación Vendedor'], inplace=True)
         #Creación de la nueva columna "Clasificación Producto"
         if 'Clasificación Producto' not in df_procesado.columns:
             df_procesado['Clasificación Producto'] = ''
