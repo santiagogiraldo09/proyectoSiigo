@@ -25,17 +25,16 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
-    Actualiza la hoja "Datos" del TRM.xlsx de forma segura, manejando inconsistencias de columnas.
+    Actualiza la hoja "Datos" del TRM.xlsx de forma segura, manejando índices duplicados.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización de la hoja '{nombre_hoja_destino}' en TRM.xlsx...")
 
     try:
         # PASO 1: Descargar y leer el archivo TRM
-        status_placeholder.info("1/4 - Descargando y leyendo archivo TRM...")
+        status_placeholder.info("1/3 - Descargando y leyendo archivo TRM...")
         contenido_trm = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
-        if contenido_trm is None:
-            return False
+        if contenido_trm is None: return False
 
         libro_excel_completo = pd.read_excel(io.BytesIO(contenido_trm), engine='openpyxl', sheet_name=None)
         
@@ -45,41 +44,42 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             
         df_trm_existente = libro_excel_completo[nombre_hoja_destino]
 
-        # PASO 2: Preparar el nuevo bloque de datos (LÓGICA MEJORADA)
-        status_placeholder.info("2/4 - Preparando nuevos datos con formato...")
-        
-        # Crear un nuevo DataFrame con las mismas columnas que el TRM y las nuevas filas
-        df_para_agregar = pd.DataFrame(columns=df_trm_existente.columns)
-        
-        # Obtener las columnas del TRM desde la 'D' en adelante
-        columnas_destino = df_trm_existente.columns[3:]
-        # Obtener las columnas de los datos procesados
-        columnas_origen = df_datos_procesados.columns
-        
-        # Iterar a través de las filas de los datos procesados
-        for i, fila_origen in df_datos_procesados.iterrows():
-            nueva_fila = {"A": " ", "B": " ", "C": " "} # Nombres de columna literales por simplicidad
-            
-            # Mapear los datos a las columnas desde la 'D' en adelante
-            for j, col_destino in enumerate(columnas_destino):
-                if j < len(columnas_origen):
-                    # Asignar el valor de la columna origen a la columna destino
-                    nueva_fila[col_destino] = fila_origen[columnas_origen[j]]
-            
-            # Convertir la fila en un DataFrame y añadirla a df_para_agregar
-            df_para_agregar = pd.concat([df_para_agregar, pd.DataFrame([nueva_fila])], ignore_index=True)
+        # --- SOLUCIÓN: Forzar un índice único y limpio ---
+        df_trm_existente.reset_index(drop=True, inplace=True)
 
-        # Renombrar las columnas A, B, C de nuestro nuevo DF para que coincidan con las del TRM
-        mapeo_inicial = {"A": df_trm_existente.columns[0], "B": df_trm_existente.columns[1], "C": df_trm_existente.columns[2]}
-        df_para_agregar.rename(columns=mapeo_inicial, inplace=True)
+        # PASO 2: Preparar el nuevo bloque de datos (LÓGICA SIMPLIFICADA)
+        status_placeholder.info("2/3 - Preparando nuevos datos con formato...")
         
-        # PASO 3: Combinar los DataFrames
-        status_placeholder.info("3/4 - Combinando datos existentes y nuevos...")
+        # Crear una lista para las nuevas filas
+        lista_nuevas_filas = []
+        
+        # Obtener los nombres de las columnas del archivo de destino
+        nombres_columnas_destino = df_trm_existente.columns
+        nombres_columnas_origen = df_datos_procesados.columns
+
+        for index, fila_origen in df_datos_procesados.iterrows():
+            nueva_fila = {}
+            # Llenar las 3 primeras columnas con blancos
+            nueva_fila[nombres_columnas_destino[0]] = " "
+            nueva_fila[nombres_columnas_destino[1]] = " "
+            nueva_fila[nombres_columnas_destino[2]] = " "
+            
+            # Llenar el resto de columnas con los datos procesados
+            for i, col_destino in enumerate(nombres_columnas_destino[3:]):
+                if i < len(nombres_columnas_origen):
+                    nueva_fila[col_destino] = fila_origen[nombres_columnas_origen[i]]
+            
+            lista_nuevas_filas.append(nueva_fila)
+
+        # Convertir la lista de filas en un DataFrame de una sola vez
+        df_para_agregar = pd.DataFrame(lista_nuevas_filas)
+        
+        # PASO 3: Combinar, escribir y subir el archivo
+        status_placeholder.info("3/3 - Combinando y subiendo el archivo TRM actualizado...")
         df_trm_actualizado = pd.concat([df_trm_existente, df_para_agregar], ignore_index=True)
+        
         libro_excel_completo[nombre_hoja_destino] = df_trm_actualizado
         
-        # PASO 4: Escribir y subir el archivo
-        status_placeholder.info("4/4 - Subiendo archivo TRM actualizado...")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             for nombre_hoja, df_hoja in libro_excel_completo.items():
