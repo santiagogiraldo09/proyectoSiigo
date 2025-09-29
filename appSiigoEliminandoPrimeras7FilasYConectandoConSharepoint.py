@@ -8,6 +8,7 @@ import requests
 from msal import ConfidentialClientApplication
 import zipfile
 import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
 
 # ==============================================================================
 # CONFIGURACIÓN DE SHAREPOINT Y AZURE
@@ -360,69 +361,70 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
         return None
 
 def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
-    st.info(f"🔄 Actualizando el archivo en SharePoint: '{ruta_archivo.split('/')[-1]}'")
-    
+    """
+    Agrega datos a la primera hoja de un archivo Excel en SharePoint,
+    preservando fórmulas, formatos y otras hojas.
+    """
+    status_placeholder.info(f"🔄 Iniciando actualización avanzada de: '{ruta_archivo.split('/')[-1]}'")
+
     try:
-        # PASO 1: Verificar que el archivo existe y obtener metadatos
-        st.write("1/4 - Verificando archivo existente...")
-        existe, metadata = verificar_archivo_existe_sharepoint(headers, site_id, ruta_archivo)
-        
-        if not existe:
-            st.error("❌ No se puede continuar: el archivo no existe o no es accesible")
+        # PASO 1: Descargar el archivo existente con validaciones
+        status_placeholder.info("1/4 - Descargando y validando archivo...")
+        contenido_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo)
+        if contenido_bytes is None:
+            status_placeholder.error("❌ Falla en la descarga o validación del archivo.")
             return False
+
+        contenido_en_memoria = io.BytesIO(contenido_bytes)
+
+        # PASO 2: Cargar el libro de trabajo completo con openpyxl
+        status_placeholder.info("2/4 - Cargando estructura del archivo (formatos, hojas)...")
+        libro = openpyxl.load_workbook(contenido_en_memoria)
         
-        # PASO 2: Descargar archivo con validaciones
-        st.write("2/4 - Descargando archivo existente...")
-        contenido_archivo = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo)
+        # Asumimos que los datos se agregan a la primera hoja.
+        # Puedes cambiar esto por un nombre fijo si es necesario, ej: nombre_hoja_destino = "Ventas"
+        nombre_hoja_destino = libro.sheetnames[0]
+        hoja = libro[nombre_hoja_destino]
         
-        if contenido_archivo is None:
-            st.error("❌ No se pudo descargar el archivo")
-            return False
-        
-        # PASO 3: Intentar leer el Excel con manejo de errores mejorado
-        st.write("3/4 - Leyendo archivo Excel...")
-        try:
-            df_existente = pd.read_excel(io.BytesIO(contenido_archivo), engine='openpyxl')
-            st.success(f"✅ Archivo Excel leído correctamente. Filas existentes: {len(df_existente)}")
-        except zipfile.BadZipFile:
-            st.error("❌ Error: El archivo descargado no es un Excel válido")
-            st.error("Esto puede indicar que el archivo está corrupto o es de otro tipo")
-            return False
-        except Exception as e:
-            st.error(f"❌ Error al leer el archivo Excel: {e}")
-            return False
-        
-        # PASO 4: Combinar datos
-        st.write("4/4 - Combinando y subiendo datos...")
+        # Leer los datos de esa hoja en un DataFrame para facilitar la manipulación
+        df_existente = pd.read_excel(io.BytesIO(contenido_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
+        df_existente.reset_index(drop=True, inplace=True)
+
+        # PASO 3: Combinar los datos y limpiar columnas "Unnamed"
+        status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
-        st.success(f"✅ Datos combinados. Total de filas: {len(df_combinado)}")
         
-        # Generar archivo Excel actualizado
-        output = io.BytesIO()
-        df_combinado.to_excel(output, index=False, engine='xlsxwriter')
-        output.seek(0)  # Importante: volver al inicio del buffer
+        cols_a_eliminar = [col for col in df_combinado.columns if 'Unnamed:' in str(col)]
+        if cols_a_eliminar:
+            df_combinado.drop(columns=cols_a_eliminar, inplace=True)
+            status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
+
+        # PASO 4: Escribir los datos actualizados de vuelta a la hoja, preservando el resto
+        status_placeholder.info("4/4 - Escribiendo datos y subiendo el archivo final...")
         
-        # Subir archivo actualizado
-        endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
-        headers_upload = headers.copy()
-        headers_upload['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        
-        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers_upload)
-        
-        if response_put.status_code in [200, 201]:
-            st.success("🎉 ¡Éxito! El archivo ha sido actualizado en SharePoint.")
-            return True
-        else:
-            st.error(f"❌ Error al subir archivo. HTTP {response_put.status_code}")
-            try:
-                error_json = response_put.json()
-                st.json(error_json)
-            except:
-                st.error(f"Respuesta: {response_put.text}")
-            return False
+        # Borrar datos antiguos de la hoja (excepto encabezados) para evitar duplicados
+        for r in range(hoja.max_row, 1, -1):
+            hoja.delete_rows(r)
             
+        # Escribir el contenido del DataFrame combinado en la hoja
+        for r_idx, row in enumerate(dataframe_to_rows(df_combinado, index=False, header=False), 2):
+            for c_idx, value in enumerate(row, 1):
+                hoja.cell(row=r_idx, column=c_idx, value=value)
+        
+        # Guardar el libro modificado en memoria
+        output = io.BytesIO()
+        libro.save(output)
+        
+        # Subir el archivo final
+        endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
+        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
+        response_put.raise_for_status()
+
+        status_placeholder.success(f"✅ ¡Archivo '{ruta_archivo.split('/')[-1]}' actualizado preservando su formato!")
+        return True
+
     except Exception as e:
-        st.error(f"❌ Error inesperado en la función: {e}")
+        status_placeholder.error(f"❌ Falló la actualización del archivo. Error: {e}")
         return False
 
 def listar_archivos_en_carpeta(headers, site_id, ruta_carpeta):
