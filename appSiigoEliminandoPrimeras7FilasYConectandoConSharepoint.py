@@ -25,44 +25,61 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
-    Actualiza la hoja "Datos" del archivo TRM.xlsx sin modificar las otras hojas.
+    Actualiza la hoja "Datos" del TRM.xlsx de forma segura, manejando inconsistencias de columnas.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización de la hoja '{nombre_hoja_destino}' en TRM.xlsx...")
 
     try:
-        # PASO 1: Descargar el archivo TRM completo
-        status_placeholder.info("1/4 - Descargando archivo TRM existente...")
+        # PASO 1: Descargar y leer el archivo TRM
+        status_placeholder.info("1/4 - Descargando y leyendo archivo TRM...")
         contenido_trm = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
         if contenido_trm is None:
-            status_placeholder.error("❌ Falla en la descarga o validación del archivo TRM.")
             return False
 
-        # PASO 2: Leer TODAS las hojas del archivo
-        status_placeholder.info("2/4 - Leyendo todas las hojas del archivo...")
-        # Al usar sheet_name=None, Pandas devuelve un diccionario con todas las hojas
         libro_excel_completo = pd.read_excel(io.BytesIO(contenido_trm), engine='openpyxl', sheet_name=None)
         
-        # Verificar que la hoja "Datos" exista
         if nombre_hoja_destino not in libro_excel_completo:
-            status_placeholder.error(f"❌ No se encontró la hoja '{nombre_hoja_destino}' en el archivo TRM.xlsx.")
+            status_placeholder.error(f"❌ No se encontró la hoja '{nombre_hoja_destino}'.")
             return False
-
+            
         df_trm_existente = libro_excel_completo[nombre_hoja_destino]
 
-        # PASO 3: Preparar el nuevo bloque de datos
-        status_placeholder.info("3/4 - Preparando nuevos datos con formato...")
-        df_para_agregar = pd.DataFrame(columns=df_trm_existente.columns, index=range(len(df_datos_procesados)))
-        df_para_agregar.iloc[:, 0] = " "
-        df_para_agregar.iloc[:, 1] = " "
-        df_para_agregar.iloc[:, 2] = " "
-        df_para_agregar.iloc[:, 3:] = df_datos_procesados.values
+        # PASO 2: Preparar el nuevo bloque de datos (LÓGICA MEJORADA)
+        status_placeholder.info("2/4 - Preparando nuevos datos con formato...")
         
-        # Actualizar la hoja "Datos" en nuestro diccionario
-        libro_excel_completo[nombre_hoja_destino] = pd.concat([df_trm_existente, df_para_agregar], ignore_index=True)
+        # Crear un nuevo DataFrame con las mismas columnas que el TRM y las nuevas filas
+        df_para_agregar = pd.DataFrame(columns=df_trm_existente.columns)
+        
+        # Obtener las columnas del TRM desde la 'D' en adelante
+        columnas_destino = df_trm_existente.columns[3:]
+        # Obtener las columnas de los datos procesados
+        columnas_origen = df_datos_procesados.columns
+        
+        # Iterar a través de las filas de los datos procesados
+        for i, fila_origen in df_datos_procesados.iterrows():
+            nueva_fila = {"A": " ", "B": " ", "C": " "} # Nombres de columna literales por simplicidad
+            
+            # Mapear los datos a las columnas desde la 'D' en adelante
+            for j, col_destino in enumerate(columnas_destino):
+                if j < len(columnas_origen):
+                    # Asignar el valor de la columna origen a la columna destino
+                    nueva_fila[col_destino] = fila_origen[columnas_origen[j]]
+            
+            # Convertir la fila en un DataFrame y añadirla a df_para_agregar
+            df_para_agregar = pd.concat([df_para_agregar, pd.DataFrame([nueva_fila])], ignore_index=True)
 
-        # PASO 4: Escribir todas las hojas de vuelta y subir el archivo
-        status_placeholder.info("4/4 - Re-escribiendo todas las hojas y subiendo el archivo...")
+        # Renombrar las columnas A, B, C de nuestro nuevo DF para que coincidan con las del TRM
+        mapeo_inicial = {"A": df_trm_existente.columns[0], "B": df_trm_existente.columns[1], "C": df_trm_existente.columns[2]}
+        df_para_agregar.rename(columns=mapeo_inicial, inplace=True)
+        
+        # PASO 3: Combinar los DataFrames
+        status_placeholder.info("3/4 - Combinando datos existentes y nuevos...")
+        df_trm_actualizado = pd.concat([df_trm_existente, df_para_agregar], ignore_index=True)
+        libro_excel_completo[nombre_hoja_destino] = df_trm_actualizado
+        
+        # PASO 4: Escribir y subir el archivo
+        status_placeholder.info("4/4 - Subiendo archivo TRM actualizado...")
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             for nombre_hoja, df_hoja in libro_excel_completo.items():
@@ -72,7 +89,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
         response_put.raise_for_status()
 
-        status_placeholder.success(f"✅ ¡El archivo TRM.xlsx ha sido actualizado con éxito preservando todas las hojas!")
+        status_placeholder.success("✅ ¡El archivo TRM.xlsx ha sido actualizado!")
         return True
 
     except Exception as e:
