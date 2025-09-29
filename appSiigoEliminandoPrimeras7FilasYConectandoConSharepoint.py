@@ -329,8 +329,8 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
             if archivos_candidatos:
                 #st.success(f"✅ Encontrados {len(archivos_candidatos)} archivos candidatos:")
                 
-                for i, candidato in enumerate(archivos_candidatos):
-                    st.write(f"{i+1}. **{candidato['nombre_original']}** ({candidato['tamaño']:,} bytes) - Patrón: '{candidato['patron_encontrado']}'")
+                #for i, candidato in enumerate(archivos_candidatos):
+                    #st.write(f"{i+1}. **{candidato['nombre_original']}** ({candidato['tamaño']:,} bytes) - Patrón: '{candidato['patron_encontrado']}'")
                 
                 # Seleccionar el primer candidato (o puedes agregar lógica más sofisticada)
                 archivo_seleccionado = archivos_candidatos[0]
@@ -783,22 +783,22 @@ uploaded_file = st.file_uploader(
     help="Arrastra y suelta tu archivo Excel aquí o haz clic para buscar."
 )
 
-st.markdown("---")
-st.header("🔧 Herramientas de Debug para SharePoint")
+#st.markdown("---")
+#st.header("🔧 Herramientas de Debug para SharePoint")
 
 # Crear variables de prueba para conexión SharePoint
-if st.button("🔗 Probar Conexión SharePoint (Solo Debug)"):
-    with st.spinner("Conectando..."):
-        status_placeholder = st.empty()
-        token = get_access_token(status_placeholder)
+#if st.button("🔗 Probar Conexión SharePoint (Solo Debug)"):
+    #with st.spinner("Conectando..."):
+        #status_placeholder = st.empty()
+        #token = get_access_token(status_placeholder)
         
-        if token:
-            site_id = get_sharepoint_site_id(token)
-            if site_id:
-                headers = {'Authorization': f'Bearer {token}'}
-                st.session_state.debug_headers = headers
-                st.session_state.debug_site_id = site_id
-                st.success("✅ Conexión establecida para debug")
+        #if token:
+            #site_id = get_sharepoint_site_id(token)
+            #if site_id:
+                #headers = {'Authorization': f'Bearer {token}'}
+                #st.session_state.debug_headers = headers
+                #st.session_state.debug_site_id = site_id
+                #st.success("✅ Conexión establecida para debug")
 
 # Solo mostrar herramientas de debug si hay conexión
 if hasattr(st.session_state, 'debug_headers') and hasattr(st.session_state, 'debug_site_id'):
