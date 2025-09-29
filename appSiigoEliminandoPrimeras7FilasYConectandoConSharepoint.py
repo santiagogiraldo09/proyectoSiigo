@@ -23,6 +23,62 @@ RUTA_CARPETA_VENTAS_MENSUALES = "Ventas con ciudad 2025"
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES = ["https://graph.microsoft.com/.default"]
 
+def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
+    """
+    Actualiza la hoja "Datos" del archivo TRM.xlsx sin modificar las otras hojas.
+    """
+    nombre_hoja_destino = "Datos"
+    status_placeholder.info(f"🔄 Iniciando actualización de la hoja '{nombre_hoja_destino}' en TRM.xlsx...")
+
+    try:
+        # PASO 1: Descargar el archivo TRM completo
+        status_placeholder.info("1/4 - Descargando archivo TRM existente...")
+        contenido_trm = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
+        if contenido_trm is None:
+            status_placeholder.error("❌ Falla en la descarga o validación del archivo TRM.")
+            return False
+
+        # PASO 2: Leer TODAS las hojas del archivo
+        status_placeholder.info("2/4 - Leyendo todas las hojas del archivo...")
+        # Al usar sheet_name=None, Pandas devuelve un diccionario con todas las hojas
+        libro_excel_completo = pd.read_excel(io.BytesIO(contenido_trm), engine='openpyxl', sheet_name=None)
+        
+        # Verificar que la hoja "Datos" exista
+        if nombre_hoja_destino not in libro_excel_completo:
+            status_placeholder.error(f"❌ No se encontró la hoja '{nombre_hoja_destino}' en el archivo TRM.xlsx.")
+            return False
+
+        df_trm_existente = libro_excel_completo[nombre_hoja_destino]
+
+        # PASO 3: Preparar el nuevo bloque de datos
+        status_placeholder.info("3/4 - Preparando nuevos datos con formato...")
+        df_para_agregar = pd.DataFrame(columns=df_trm_existente.columns, index=range(len(df_datos_procesados)))
+        df_para_agregar.iloc[:, 0] = " "
+        df_para_agregar.iloc[:, 1] = " "
+        df_para_agregar.iloc[:, 2] = " "
+        df_para_agregar.iloc[:, 3:] = df_datos_procesados.values
+        
+        # Actualizar la hoja "Datos" en nuestro diccionario
+        libro_excel_completo[nombre_hoja_destino] = pd.concat([df_trm_existente, df_para_agregar], ignore_index=True)
+
+        # PASO 4: Escribir todas las hojas de vuelta y subir el archivo
+        status_placeholder.info("4/4 - Re-escribiendo todas las hojas y subiendo el archivo...")
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            for nombre_hoja, df_hoja in libro_excel_completo.items():
+                df_hoja.to_excel(writer, sheet_name=nombre_hoja, index=False)
+        
+        endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo_trm}:/content"
+        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
+        response_put.raise_for_status()
+
+        status_placeholder.success(f"✅ ¡El archivo TRM.xlsx ha sido actualizado con éxito preservando todas las hojas!")
+        return True
+
+    except Exception as e:
+        status_placeholder.error(f"❌ Falló la actualización del archivo TRM. Error: {e}")
+        return False
+
 def validar_respuesta_sharepoint(response, nombre_archivo):
     """
     Valida que la respuesta de SharePoint sea correcta y contenga un archivo Excel
@@ -758,7 +814,9 @@ if uploaded_file is not None:
                     headers = {'Authorization': f'Bearer {token}'}
                     # 3. Encontrar el archivo del mes
                     ruta_archivo_mensual = encontrar_archivo_del_mes(headers, site_id, RUTA_CARPETA_VENTAS_MENSUALES, status_placeholder)
-                    
+                    ruta_fija_trm = "01 Archivos Area Administrativa/TRM.xlsx"
+                    exito_trm = actualizar_archivo_trm(headers, site_id, ruta_fija_trm, df_result, status_placeholder)
+                    st.info("Archivo TRM actualizado con Éxito")
                     if ruta_archivo_mensual:
                         # 4. Agregar los datos
                         #agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo_mensual, df_result, status_placeholder)
