@@ -38,6 +38,16 @@ def procesar_excel_para_streamlit(uploaded_file):
                 columna = columna.astype(str)
             columna_limpia = columna.str.replace(',', '', regex=False)
             return pd.to_numeric(columna_limpia, errors='coerce')
+        
+        if 'Identificación Vendedor' in df_procesado.columns:
+            # Crear la nueva columna 'Vendedor' con los datos de la original
+            df_procesado['Vendedor'] = df_procesado['Identificación Vendedor']
+            st.success("✅ Columna 'Vendedor' creada con éxito.")
+        else:
+            # Si la columna original no existe, crear 'Vendedor' como una columna vacía
+            st.warning("⚠️ No se encontró la columna 'Identificación Vendedor'. Se creará una columna 'Vendedor' vacía.")
+            df_procesado['Vendedor'] = ''
+        
         # Columnas a eliminar predefinidas
         nombres_columnas_a_eliminar = [
             "Sucursal",
@@ -48,7 +58,7 @@ def procesar_excel_para_streamlit(uploaded_file):
             "Tipo de registro",
             "Referencia fábrica",
             "Bodega",
-            "Identificación Vendedor",
+            #"Identificación Vendedor",
             "Nombre vendedor",
             "Valor desc.",
             "Base AIU",
@@ -196,8 +206,10 @@ def procesar_excel_para_streamlit(uploaded_file):
             df_procesado['Tipo Bien'].replace(mapeo_valores, inplace=True)
             st.info("Valores en 'Tipo Bien' actualizados: 'Servicio' a 'S' y 'Producto' a 'P'.")
         #Creación de la nueva columna "Vendedor"
-        if 'Vendedor' not in df_procesado.columns:
-            df_procesado['Vendedor'] = ''
+        #if 'Vendedor' not in df_procesado.columns:
+            #df_procesado['Vendedor'] = ''
+        if 'Identificación Vendedor' in df_procesado.columns:
+            df_procesado.drop(columns=['Identificación Vendedor'], inplace=True)
         #Creación de la nueva columna "Clasificación Producto"
         if 'Clasificación Producto' not in df_procesado.columns:
             df_procesado['Clasificación Producto'] = ''
