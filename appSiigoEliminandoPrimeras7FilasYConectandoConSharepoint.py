@@ -27,6 +27,68 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
+    Actualiza la hoja "Datos" del TRM.xlsx añadiendo nuevas filas sin borrar las existentes,
+    lo que permite a las Tablas de Excel extender las fórmulas automáticamente.
+    """
+    nombre_hoja_destino = "Datos"
+    status_placeholder.info(f"🔄 Iniciando actualización (modo apéndice) de la hoja '{nombre_hoja_destino}'...")
+
+    try:
+        # PASO 1: Descargar y cargar el libro de trabajo completo
+        status_placeholder.info("1/3 - Descargando archivo TRM...")
+        contenido_trm_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
+        if contenido_trm_bytes is None: return False
+
+        libro = openpyxl.load_workbook(io.BytesIO(contenido_trm_bytes))
+        if nombre_hoja_destino not in libro.sheetnames:
+            status_placeholder.error(f"❌ No se encontró la hoja '{nombre_hoja_destino}'.")
+            return False
+        
+        hoja = libro[nombre_hoja_destino]
+
+        # PASO 2: Preparar las nuevas filas para ser añadidas
+        status_placeholder.info("2/3 - Preparando nuevas filas para añadir...")
+        
+        # Obtener el número de encabezados de la hoja de destino
+        num_encabezados = len([cell.value for cell in hoja[1]])
+        
+        lista_nuevas_filas = []
+        # Iterar sobre las filas de los datos procesados
+        for index, fila_procesada in df_datos_procesados.iterrows():
+            # Crear una lista de strings vacíos del tamaño de la fila de destino
+            nueva_fila_lista = [""] * num_encabezados
+            
+            # --- CORRECCIÓN Y SIMPLIFICACIÓN AQUÍ ---
+            # Copiar los valores de la fila procesada a la nueva lista, a partir de la 4ta posición (índice 3)
+            for i, valor in enumerate(fila_procesada.values):
+                if (i + 3) < num_encabezados:
+                    nueva_fila_lista[i + 3] = valor
+            
+            lista_nuevas_filas.append(nueva_fila_lista)
+
+        # PASO 3: Añadir las nuevas filas y subir el archivo
+        status_placeholder.info(f"3/3 - Añadiendo {len(lista_nuevas_filas)} nuevas filas y subiendo...")
+        for fila in lista_nuevas_filas:
+            hoja.append(fila) # 'append' añade la fila al final, sin tocar las existentes
+            
+        # Guardar y subir
+        output = io.BytesIO()
+        libro.save(output)
+        
+        endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo_trm}:/content"
+        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
+        response_put.raise_for_status()
+
+        status_placeholder.success("✅ ¡Archivo TRM actualizado! Las fórmulas deberían haberse extendido automáticamente.")
+        return True
+
+    except Exception as e:
+        status_placeholder.error(f"❌ Falló la actualización del archivo TRM. Error: {e}")
+        return False
+
+'''
+def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
+    """
     Actualiza la hoja "Datos" del TRM.xlsx de forma segura, preservando formatos y hojas,
     y utilizando las funciones de validación para evitar errores con archivos corruptos.
     """
@@ -80,18 +142,31 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         
         df_para_agregar = pd.DataFrame(lista_nuevas_filas)
         df_trm_actualizado = pd.concat([df_trm_existente, df_para_agregar], ignore_index=True)
+        
+        # --- LÍNEAS NUEVAS PARA ELIMINAR DUPLICADOS ---
+        filas_antes = len(df_trm_actualizado)
+        df_sin_duplicados = df_trm_actualizado.drop_duplicates(keep='first')
+        filas_despues = len(df_sin_duplicados)
+        
+        duplicados_encontrados = filas_antes - filas_despues
+        if duplicados_encontrados > 0:
+            status_placeholder.warning(f"⚠️ Se encontraron y omitieron {duplicados_encontrados} registros duplicados en el archivo TRM.")
+        else:
+            status_placeholder.info("✅ No se encontraron registros duplicados en el archivo TRM.")
+        
+        # --- FIN DE LÍNEAS NUEVAS ---
 
         # Limpiar columnas "Unnamed:"
-        cols_a_eliminar = [col for col in df_trm_actualizado.columns if 'Unnamed:' in str(col)]
+        cols_a_eliminar = [col for col in df_sin_duplicados.columns if 'Unnamed:' in str(col)]
         if cols_a_eliminar:
-            df_trm_actualizado.drop(columns=cols_a_eliminar, inplace=True)
+            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True)
 
         # Escribir los datos actualizados en la hoja de openpyxl
         hoja = libro[nombre_hoja_destino]
         for r in range(hoja.max_row, 1, -1):
             hoja.delete_rows(r)
         from openpyxl.utils.dataframe import dataframe_to_rows
-        for r_idx, row in enumerate(dataframe_to_rows(df_trm_actualizado, index=False, header=False), 2):
+        for r_idx, row in enumerate(dataframe_to_rows(df_sin_duplicados, index=False, header=False), 2):
             for c_idx, value in enumerate(row, 1):
                 hoja.cell(row=r_idx, column=c_idx, value=value)
                 
@@ -110,6 +185,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
     except Exception as e:
         #status_placeholder.error(f"❌ Falló la actualización del archivo TRM. Error: {e}")
         return False
+'''
 
 def validar_respuesta_sharepoint(response, nombre_archivo):
     """
@@ -394,20 +470,38 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         #status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
         
-        cols_a_eliminar = [col for col in df_combinado.columns if 'Unnamed:' in str(col)]
+        # --- LÍNEAS NUEVAS PARA ELIMINAR DUPLICADOS ---
+        filas_antes = len(df_combinado)
+        # Elimina filas que son completamente idénticas, manteniendo la primera aparición
+        df_sin_duplicados = df_combinado.drop_duplicates(keep='first')
+        filas_despues = len(df_sin_duplicados)
+        
+        duplicados_encontrados = filas_antes - filas_despues
+        if duplicados_encontrados > 0:
+            status_placeholder.warning(f"⚠️ Se encontraron y omitieron {duplicados_encontrados} registros duplicados.")
+        else:
+            status_placeholder.info("✅ No se encontraron registros duplicados.")
+        
+        # --- FIN DE LÍNEAS NUEVAS ---
+        
+        cols_a_eliminar = [col for col in df_sin_duplicados.columns if 'Unnamed:' in str(col)]
         if cols_a_eliminar:
-            df_combinado.drop(columns=cols_a_eliminar, inplace=True)
+            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True)
             #status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
 
         # PASO 4: Escribir los datos actualizados de vuelta a la hoja, preservando el resto
         #status_placeholder.info("4/4 - Escribiendo datos y subiendo el archivo final...")
         
+        # Asegúrate de usar el DataFrame limpio para el resto del proceso
+        df_combinado = df_sin_duplicados # <-- ¡Importante!
+        hoja = libro[nombre_hoja_destino]
         # Borrar datos antiguos de la hoja (excepto encabezados) para evitar duplicados
         for r in range(hoja.max_row, 1, -1):
             hoja.delete_rows(r)
             
+        from openpyxl.utils.dataframe import dataframe_to_rows    
         # Escribir el contenido del DataFrame combinado en la hoja
-        for r_idx, row in enumerate(dataframe_to_rows(df_combinado, index=False, header=False), 2):
+        for r_idx, row in enumerate(dataframe_to_rows(df_sin_duplicados, index=False, header=False), 2):
             for c_idx, value in enumerate(row, 1):
                 hoja.cell(row=r_idx, column=c_idx, value=value)
         
