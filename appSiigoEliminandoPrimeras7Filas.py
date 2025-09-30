@@ -72,31 +72,6 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             hoja.append(fila) # 'append' añade la fila al final, sin tocar las existentes
         
             
-        # --- PASO 4 (NUEVO): Redimensionar la Tabla para incluir las nuevas filas ---
-        status_placeholder.info("4/4 - Ajustando el tamaño de la Tabla de Excel...")
-        
-        # Openpyxl nombra a las tablas por defecto 'Table1', 'Table2', etc.
-        # Asumimos que es la primera y única tabla en la hoja.
-        if hoja.tables:
-            nombre_tabla = list(hoja.tables.keys())[0]
-            tabla = hoja.tables[nombre_tabla]
-            
-            # Obtener el rango actual, ej: "A1:J50"
-            rango_actual = tabla.ref
-            
-            # Calcular el nuevo rango final
-            celda_inicial = rango_actual.split(':')[0] # ej: "A1"
-            # La última celda es la intersección de la última fila y última columna con datos
-            ultima_columna_letra = openpyxl.utils.get_column_letter(hoja.max_column)
-            celda_final_nueva = f"{ultima_columna_letra}{hoja.max_row}"
-            
-            nuevo_rango = f"{celda_inicial}:{celda_final_nueva}"
-            
-            status_placeholder.info(f"Nuevo rango para la tabla '{nombre_tabla}': {nuevo_rango}")
-            tabla.ref = nuevo_rango # ¡Aquí actualizamos el rango!
-        else:
-            status_placeholder.warning("⚠️ No se encontró una Tabla de Excel. Los formatos y fórmulas no se expandirán.")
-            
         # Guardar y subir
         output = io.BytesIO()
         libro.save(output)
