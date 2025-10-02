@@ -58,11 +58,14 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             # Crear una lista de strings vacíos del tamaño de la fila de destino
             nueva_fila_lista = [""] * num_encabezados
             
+            # Establecer "Colombia" en la columna 3 (índice 2)
+            nueva_fila_lista[2] = "Colombia"
+            
             # --- CORRECCIÓN Y SIMPLIFICACIÓN AQUÍ ---
             # Copiar los valores de la fila procesada a la nueva lista, a partir de la 4ta posición (índice 3)
             for i, valor in enumerate(fila_procesada.values):
-                if (i + 3) < num_encabezados:
-                    nueva_fila_lista[i + 3] = valor
+                if (i + 4) < num_encabezados:
+                    nueva_fila_lista[i + 4] = valor
             
             lista_nuevas_filas.append(nueva_fila_lista)
 
