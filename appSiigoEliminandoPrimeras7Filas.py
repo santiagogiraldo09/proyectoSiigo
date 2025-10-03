@@ -45,9 +45,22 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             return False
         
         hoja = libro[nombre_hoja_destino]
-
+        
+        #PASO 1.1: Detectar si existe una Tabla de Excel en la hoja
+        status_placeholder.info("2/4 - Detectando Tabla de Excel...")
+        tabla = None
+        if hoja.tables:
+            # Tomar la primera tabla encontrada (puedes ajustar esto si hay múltiples tablas)
+            nombre_tabla = list(hoja.tables.keys())[0]
+            tabla = hoja.tables[nombre_tabla]
+            status_placeholder.info(f"✅ Tabla encontrada: '{nombre_tabla}' con rango {tabla.ref}")
+        else:
+            status_placeholder.warning("⚠️ No se encontró ninguna Tabla de Excel. Las fórmulas podrían no extenderse automáticamente.")
+        
+        
+        
         # PASO 2: Preparar las nuevas filas para ser añadidas
-        status_placeholder.info("2/3 - Preparando nuevas filas para añadir...")
+        status_placeholder.info("3/4 - Preparando nuevas filas para añadir...")
         
         # Obtener el número de encabezados de la hoja de destino
         num_encabezados = len([cell.value for cell in hoja[1]])
@@ -70,11 +83,26 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             lista_nuevas_filas.append(nueva_fila_lista)
 
         # PASO 3: Añadir las nuevas filas y subir el archivo
-        status_placeholder.info(f"3/3 - Añadiendo {len(lista_nuevas_filas)} nuevas filas y subiendo...")
+        status_placeholder.info(f"4/4 - Añadiendo {len(lista_nuevas_filas)} nuevas filas y subiendo...")
         for fila in lista_nuevas_filas:
             hoja.append(fila) # 'append' añade la fila al final, sin tocar las existentes
         
+        # Extender el rango de la Tabla si existe
+        if tabla:
+            from openpyxl.worksheet.table import TableColumn
             
+            # Calcular el nuevo rango de la tabla
+            # Formato: "A1:Z100" donde necesitamos mantener las columnas pero extender las filas
+            rango_actual = tabla.ref
+            inicio_rango = rango_actual.split(':')[0]  # Ej: "A1"
+            columna_final = rango_actual.split(':')[1].rstrip('0123456789')  # Ej: "Z" de "Z100"
+            
+            nueva_fila_final = hoja.max_row
+            nuevo_rango = f"{inicio_rango}:{columna_final}{nueva_fila_final}"
+            
+            tabla.ref = nuevo_rango
+            status_placeholder.info(f"✅ Rango de la Tabla extendido de {rango_actual} a {nuevo_rango}")
+        
         # Guardar y subir
         output = io.BytesIO()
         libro.save(output)
@@ -89,7 +117,6 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
     except Exception as e:
         status_placeholder.error(f"❌ Falló la actualización del archivo TRM. Error: {e}")
         return False
-
 
 
 def validar_respuesta_sharepoint(response, nombre_archivo):
