@@ -553,7 +553,31 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         ]
 
         #df_procesado = df.copy()
-
+        
+        # Extraer códigos de Línea y Sublínea desde "Referencia fábrica"
+        if "Referencia fábrica" in df_procesado.columns:
+            st.info("Extrayendo códigos de Línea y Sublínea desde 'Referencia fábrica'...")
+            
+            # Convertir a string para poder usar regex
+            df_procesado['Referencia fábrica'] = df_procesado['Referencia fábrica'].astype(str)
+            
+            # Extraer código de línea (entre paréntesis)
+            df_procesado['Línea'] = df_procesado['Referencia fábrica'].str.extract(r'\((\d+)\)', expand=False)
+            
+            # Extraer código de sublínea (entre llaves)
+            df_procesado['Sublínea'] = df_procesado['Referencia fábrica'].str.extract(r'\{(\d+)\}', expand=False)
+            
+            # Reemplazar NaN con string vacío
+            df_procesado['Línea'].fillna('', inplace=True)
+            df_procesado['Sublínea'].fillna('', inplace=True)
+            
+            st.success(f"Códigos extraídos - Líneas: {df_procesado['Línea'].ne('').sum()}, Sublíneas: {df_procesado['Sublínea'].ne('').sum()}")
+        else:
+            st.warning("No se encontró la columna 'Referencia fábrica'.")
+            df_procesado['Línea'] = ''
+            df_procesado['Sublínea'] = ''
+        
+        
         # 1. Eliminar filas donde "Tipo clasificación" esté vacío/NaN
         if "Tipo clasificación" in df_procesado.columns:
             filas_antes_eliminacion = len(df_procesado)
