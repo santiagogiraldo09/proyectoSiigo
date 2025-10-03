@@ -133,7 +133,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             
             # Ajusta el rango según dónde estén las sublíneas en la hoja "lineas"
             # Si están en las mismas columnas A:B, usa esto. Si no, ajusta el rango
-            formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_sublinea}{r_idx}),lineas!$B:$C,2,FALSE),"")'
+            formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_sublinea}{r_idx}),Sublineas!$B:$D,3,FALSE),"")'
             celda_desc_sublinea.value = formula
         
         status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
