@@ -121,7 +121,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
             
             # Fórmula BUSCARV que busca en la hoja "lineas"
-            formula = f'=IFERROR(VLOOKUP(VALOR({letra_col_linea}{r_idx});lineas!$B:$;2;FALSE);"")'
+            formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_linea}{r_idx}),lineas!$B:$,2,FALSE),"")'
             
             celda_desc_linea.value = formula
         
@@ -133,7 +133,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             
             # Ajusta el rango según dónde estén las sublíneas en la hoja "lineas"
             # Si están en las mismas columnas A:B, usa esto. Si no, ajusta el rango
-            formula = f'=IFERROR(VLOOKUP({letra_col_sublinea}{r_idx},lineas!$A:$B,2,FALSE),"")'
+            formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_sublinea}{r_idx}),lineas!$A:$B,2,FALSE),"")'
             celda_desc_sublinea.value = formula
         
         status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
