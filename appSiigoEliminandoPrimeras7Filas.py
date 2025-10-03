@@ -554,18 +554,18 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
 
         #df_procesado = df.copy()
         
-        # Extraer códigos de Línea y Sublínea desde "Referencia fábrica"
+        #Extraer códigos de Línea y Sublínea desde "Referencia fábrica"
         if "Referencia fábrica" in df_procesado.columns:
             st.info("Extrayendo códigos de Línea y Sublínea desde 'Referencia fábrica'...")
             
             # Convertir a string para poder usar regex
             df_procesado['Referencia fábrica'] = df_procesado['Referencia fábrica'].astype(str)
             
-            # Extraer código de línea (entre paréntesis)
-            df_procesado['Línea'] = df_procesado['Referencia fábrica'].str.extract(r'\((\d+)\)', expand=False)
+            # Extraer código de línea (entre paréntesis) - TODO el contenido
+            df_procesado['Línea'] = df_procesado['Referencia fábrica'].str.extract(r'\(([^)]+)\)', expand=False)
             
-            # Extraer código de sublínea (entre llaves)
-            df_procesado['Sublínea'] = df_procesado['Referencia fábrica'].str.extract(r'\{(\d+)\}', expand=False)
+            # Extraer código de sublínea (entre llaves) - TODO el contenido
+            df_procesado['Sublínea'] = df_procesado['Referencia fábrica'].str.extract(r'\{([^}]+)\}', expand=False)
             
             # Reemplazar NaN con string vacío
             df_procesado['Línea'].fillna('', inplace=True)
