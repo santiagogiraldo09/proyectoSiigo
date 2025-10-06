@@ -10,6 +10,7 @@ import zipfile
 import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.worksheet.table import TableColumn
+from openpyxl.utils import get_column_letter
 
 # ==============================================================================
 # CONFIGURACIÓN DE SHAREPOINT Y AZURE
@@ -102,6 +103,21 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             tabla.ref = nuevo_rango
             status_placeholder.info(f"✅ Rango de la Tabla extendido de {rango_actual} a {nuevo_rango}")
         
+        status_placeholder.info("Agregando fórmula de columna D (Comercial)...")
+
+        col_comercial_idx = 4  # Columna D
+        # Calcular qué filas son nuevas
+        num_nuevas_filas = len(lista_nuevas_filas)
+        primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
+        
+        # Agregar la fórmula a todas las nuevas filas
+        for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
+            celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
+            # Nota: Excel acepta las funciones en inglés independientemente del idioma
+            celda_comercial.value = '=IFERROR(VLOOKUP([@Vendedor],codigos_vendedor,2,0),"")'
+        
+        status_placeholder.info(f"✅ Fórmula agregada a columna D en {num_nuevas_filas} nuevas filas")
+        
         #NUEVO: Agregar fórmulas BUSCARV para las descripciones
         #status_placeholder.info("Agregando fórmulas de descripción...")
         
@@ -137,6 +153,25 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             #celda_desc_sublinea.value = formula
         
         #status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
+        
+        status_placeholder.info("Agregando fórmulas de columnas AJ y AK...")
+
+        col_aj_idx = 36  # Columna AJ
+        col_ak_idx = 37  # Columna AK
+        # Calcular qué filas son nuevas
+        num_nuevas_filas = len(lista_nuevas_filas)
+        primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
+        # Agregar fórmulas a todas las nuevas filas
+        for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
+            # Columna AJ
+            celda_aj = hoja.cell(row=r_idx, column=col_aj_idx)
+            celda_aj.value = '=+IFERROR(1-([@[Compra en USD]]/[@[Vr.Total ME]]),0)'
+            
+            # Columna AK
+            celda_ak = hoja.cell(row=r_idx, column=col_ak_idx)
+            celda_ak.value = '=+[@[Vr.Total ME]]-[@[Compra en USD]]'
+        
+        status_placeholder.info(f"✅ Fórmulas agregadas a columnas AJ y AK en {num_nuevas_filas} nuevas filas")
         
         # Guardar y subir
         output = io.BytesIO()
