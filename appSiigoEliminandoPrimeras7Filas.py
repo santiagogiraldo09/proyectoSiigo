@@ -661,6 +661,23 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             st.warning("No se encontró la columna 'Referencia fábrica'.")
             df_procesado['Línea'] = ''
             df_procesado['Sublínea'] = ''
+            
+        if "Observaciones" in df_procesado.columns:
+            st.info("Extrayendo Clasificación Producto desde 'Observaciones'...")
+            
+            df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
+            
+            # Extraer contenido entre comillas dobles
+            df_procesado['Clasificación Producto'] = df_procesado['Observaciones'].str.extract(r'"([^"]+)"', expand=False)
+            
+            # Reemplazar NaN con string vacío
+            df_procesado['Clasificación Producto'].fillna('', inplace=True)
+            
+            clasificaciones_encontradas = df_procesado['Clasificación Producto'].ne('').sum()
+            st.success(f"Clasificaciones de producto extraídas: {clasificaciones_encontradas}")
+        else:
+            st.warning("No se encontró la columna 'Observaciones'.")
+            df_procesado['Clasificación Producto'] = ''
         
         
         # 1. Eliminar filas donde "Tipo clasificación" esté vacío/NaN
