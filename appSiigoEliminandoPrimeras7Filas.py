@@ -103,40 +103,40 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             status_placeholder.info(f"✅ Rango de la Tabla extendido de {rango_actual} a {nuevo_rango}")
         
         #NUEVO: Agregar fórmulas BUSCARV para las descripciones
-        status_placeholder.info("Agregando fórmulas de descripción...")
+        #status_placeholder.info("Agregando fórmulas de descripción...")
         
-        from openpyxl.utils import get_column_letter
+        #from openpyxl.utils import get_column_letter
         # Posiciones fijas de las columnas
-        col_linea_idx = 7  # Columna F donde está "Línea"
-        col_desc_linea_idx = 8  # Columna H donde va "Descripción Línea"
-        col_sublinea_idx = 9  # Columna I donde está "Sublínea"
-        col_desc_sublinea_idx = 10  # Columna J donde va "Descripción Sublínea"
+        #col_linea_idx = 7  # Columna F donde está "Línea"
+        #col_desc_linea_idx = 8  # Columna H donde va "Descripción Línea"
+        #col_sublinea_idx = 9  # Columna I donde está "Sublínea"
+        #col_desc_sublinea_idx = 10  # Columna J donde va "Descripción Sublínea"
 
         # Convertir índices a letras
-        letra_col_linea = get_column_letter(col_linea_idx)
-        letra_col_sublinea = get_column_letter(col_sublinea_idx)
+        #letra_col_linea = get_column_letter(col_linea_idx)
+        #letra_col_sublinea = get_column_letter(col_sublinea_idx)
         
         # Agregar fórmulas para Descripción Línea (columna H)
-        for r_idx in range(2, hoja.max_row + 1):
-            celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
+        #for r_idx in range(2, hoja.max_row + 1):
+            #celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
             
             # Fórmula BUSCARV que busca en la hoja "lineas"
-            formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_linea}{r_idx}),lineas!$B:$C,2,FALSE),"")'
+            #formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_linea}{r_idx}),lineas!$B:$C,2,FALSE),"")'
             
-            celda_desc_linea.value = formula
+            #celda_desc_linea.value = formula
         
-        status_placeholder.info(f"✅ Fórmulas agregadas a columna H 'Descripción Línea' ({hoja.max_row - 1} filas)")
+        #status_placeholder.info(f"✅ Fórmulas agregadas a columna H 'Descripción Línea' ({hoja.max_row - 1} filas)")
         
         # Agregar fórmulas para Descripción Sublínea (columna J)
-        for r_idx in range(2, hoja.max_row + 1):
-            celda_desc_sublinea = hoja.cell(row=r_idx, column=col_desc_sublinea_idx)
+        #for r_idx in range(2, hoja.max_row + 1):
+            #celda_desc_sublinea = hoja.cell(row=r_idx, column=col_desc_sublinea_idx)
             
             # Ajusta el rango según dónde estén las sublíneas en la hoja "lineas"
             # Si están en las mismas columnas A:B, usa esto. Si no, ajusta el rango
-            formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_sublinea}{r_idx}),Sublineas!$B:$D,3,FALSE),"")'
-            celda_desc_sublinea.value = formula
+            #formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_sublinea}{r_idx}),Sublineas!$B:$D,3,FALSE),"")'
+            #celda_desc_sublinea.value = formula
         
-        status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
+        #status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
         
         # Guardar y subir
         output = io.BytesIO()
