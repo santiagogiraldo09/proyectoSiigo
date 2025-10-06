@@ -103,20 +103,20 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             tabla.ref = nuevo_rango
             status_placeholder.info(f"✅ Rango de la Tabla extendido de {rango_actual} a {nuevo_rango}")
         
-        status_placeholder.info("Agregando fórmula de columna D (Comercial)...")
+        #status_placeholder.info("Agregando fórmula de columna D (Comercial)...")
 
-        col_comercial_idx = 4  # Columna D
+        #col_comercial_idx = 4  # Columna D
         # Calcular qué filas son nuevas
-        num_nuevas_filas = len(lista_nuevas_filas)
-        primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
+        #num_nuevas_filas = len(lista_nuevas_filas)
+        #primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
         
         # Agregar la fórmula a todas las nuevas filas
-        for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
-            celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
+        #for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
+            #celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
             # Nota: Excel acepta las funciones en inglés independientemente del idioma
-            celda_comercial.value = '=IFERROR(VLOOKUP([@Vendedor],codigos_vendedor,2,0),"")'
+            #celda_comercial.value = '=IFERROR(VLOOKUP([@Vendedor],codigos_vendedor,2,0),"")'
         
-        status_placeholder.info(f"✅ Fórmula agregada a columna D en {num_nuevas_filas} nuevas filas")
+        #status_placeholder.info(f"✅ Fórmula agregada a columna D en {num_nuevas_filas} nuevas filas")
         
         #NUEVO: Agregar fórmulas BUSCARV para las descripciones
         #status_placeholder.info("Agregando fórmulas de descripción...")
