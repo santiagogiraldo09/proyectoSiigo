@@ -165,11 +165,11 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             # Columna AJ
             celda_aj = hoja.cell(row=r_idx, column=col_aj_idx)
-            celda_aj.value = '=+IFERROR(1-([@[Compra en USD]]/[@[Vr.Total ME]]),0)'
+            celda_aj.value = '=IFERROR(1-([@[Compra en USD]]/[@[Vr.Total ME]]),0)'
             
             # Columna AK
             celda_ak = hoja.cell(row=r_idx, column=col_ak_idx)
-            celda_ak.value = '=+[@[Vr.Total ME]]-[@[Compra en USD]]'
+            celda_ak.value = '=[@[Vr.Total ME]]-[@[Compra en USD]]'
         
         status_placeholder.info(f"✅ Fórmulas agregadas a columnas AJ y AK en {num_nuevas_filas} nuevas filas")
         
