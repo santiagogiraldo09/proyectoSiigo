@@ -153,25 +153,25 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             #celda_desc_sublinea.value = formula
         
         #status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
-        
-        status_placeholder.info("Agregando fórmulas de columnas AJ y AK...")
+        #---------------------------------------------------------------------------------------------------------
+        #status_placeholder.info("Agregando fórmulas de columnas AJ y AK...")
 
-        col_aj_idx = 36  # Columna AJ
-        col_ak_idx = 37  # Columna AK
+        #col_aj_idx = 36  # Columna AJ
+        #col_ak_idx = 37  # Columna AK
         # Calcular qué filas son nuevas
-        num_nuevas_filas = len(lista_nuevas_filas)
-        primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
+        #num_nuevas_filas = len(lista_nuevas_filas)
+        #primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
         # Agregar fórmulas a todas las nuevas filas
-        for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
+        #for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             # Columna AJ
-            celda_aj = hoja.cell(row=r_idx, column=col_aj_idx)
-            celda_aj.value = '=IFERROR(1-([@[Compra en USD]]/[@[Vr.Total ME]]),0)'
+            #celda_aj = hoja.cell(row=r_idx, column=col_aj_idx)
+            #celda_aj.value = '=IFERROR(1-([@[Compra en USD]]/[@[Vr.Total ME]]),0)'
             
             # Columna AK
-            celda_ak = hoja.cell(row=r_idx, column=col_ak_idx)
-            celda_ak.value = '=[@[Vr.Total ME]]-[@[Compra en USD]]'
+            #celda_ak = hoja.cell(row=r_idx, column=col_ak_idx)
+            #celda_ak.value = '=[@[Vr.Total ME]]-[@[Compra en USD]]'
         
-        status_placeholder.info(f"✅ Fórmulas agregadas a columnas AJ y AK en {num_nuevas_filas} nuevas filas")
+        #status_placeholder.info(f"✅ Fórmulas agregadas a columnas AJ y AK en {num_nuevas_filas} nuevas filas")
         
         # Guardar y subir
         output = io.BytesIO()
