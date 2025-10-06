@@ -487,14 +487,6 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         #status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
         
-        # Normalizar tipos de datos en columnas numéricas que pueden ser texto
-        columnas_a_normalizar = ['Línea', 'Sublínea', 'Identificación', 'Código', 'Consecutivo', 'Vendedor', 'Cantidad']
-        
-        for col in columnas_a_normalizar:
-            if col in df_combinado.columns:
-                # Convertir todo a string para comparar consistentemente
-                df_combinado[col] = df_combinado[col].astype(str).str.strip()
-        
         # --- LÍNEAS NUEVAS PARA ELIMINAR DUPLICADOS ---
         filas_antes = len(df_combinado)
         # Elimina filas que son completamente idénticas, manteniendo la primera aparición
