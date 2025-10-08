@@ -64,6 +64,22 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         # PASO 2: Preparar las nuevas filas para ser añadidas
         status_placeholder.info("3/4 - Preparando nuevas filas para añadir...")
         
+        # Calcular el año y mes a usar        
+        fecha_actual = datetime.now()
+        dia_actual = fecha_actual.day
+        anio = fecha_actual.year
+        mes = fecha_actual.month
+        
+        # Si es día 1, usar el mes anterior
+        if dia_actual == 1:
+            if mes == 1:
+                mes = 12
+                anio -= 1  # Si es enero, retroceder al diciembre del año anterior
+            else:
+                mes -= 1
+        
+        status_placeholder.info(f"Usando fecha: Año {anio}, Mes {mes}")
+        
         # Obtener el número de encabezados de la hoja de destino
         num_encabezados = len([cell.value for cell in hoja[1]])
         
@@ -72,6 +88,12 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         for index, fila_procesada in df_datos_procesados.iterrows():
             # Crear una lista de strings vacíos del tamaño de la fila de destino
             nueva_fila_lista = [""] * num_encabezados
+            
+            # Establecer Año en columna 1 (índice 0)
+            nueva_fila_lista[0] = anio
+            
+            # Establecer Mes en columna 2 (índice 1)
+            nueva_fila_lista[1] = mes
             
             # Establecer "Colombia" en la columna 3 (índice 2)
             nueva_fila_lista[2] = "Colombia"
