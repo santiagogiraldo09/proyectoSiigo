@@ -582,112 +582,34 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         # Convertir TODAS las columnas a string para comparación uniforme
         for col in df_temp_string.columns:
             # 1. Rellenar NaN/None con string vacío
-            # 2. Convertir a string
-            # 3. Eliminar el .0 al final de números flotantes (ej: "2.0" → "2")
-            # 4. Limpiar espacios
+            # 2. Si es numérico, redondear a 2 decimales para evitar diferencias de precisión
+            # 3. Convertir a string
+            # 4. Eliminar el .0 al final de números flotantes
+            # 5. Reemplazar "None" con ""
+            # 6. Limpiar espacios
+            
+            # Intentar redondear si es numérico
+            try:
+                # Si la columna es numérica, redondear a 2 decimales
+                if df_temp_string[col].dtype in ['float64', 'float32', 'int64', 'int32']:
+                    df_temp_string[col] = df_temp_string[col].round(2)
+            except:
+                pass  # Si no es numérico, continuar
+            
             df_temp_string[col] = (
                 df_temp_string[col]
                 .fillna('')
                 .astype(str)
-                .str.replace(r'\.0+$', '', regex=True)
+                .str.replace(r'\.0+$', '', regex=True)  # "2.0" → "2"
+                .str.replace('None', '', regex=False)    # "None" → ""
                 .str.strip()
             )
         
-        status_placeholder.info("✅ Todas las columnas convertidas a string temporalmente (eliminando .0 de flotantes).")
+        status_placeholder.info("✅ Todas las columnas convertidas a string (redondeadas y normalizadas).")
         
         # IDENTIFICAR duplicados usando la versión temporal en string
         # Esto compara TODAS las columnas de cada registro
         mascara_duplicados = df_temp_string.duplicated(keep='first')
-        
-        # Identificar registros que DEBERÍAN ser duplicados pero no se detectaron
-        if len(df_nuevos_datos) > 0:
-            st.write("### 🔍 INVESTIGANDO REGISTROS NO DETECTADOS COMO DUPLICADOS")
-            
-            # Los nuevos datos están al final del df_combinado
-            inicio_nuevos = len(df_existente)
-            
-            # Ver cuántos de los nuevos NO fueron marcados como duplicados
-            registros_nuevos_no_duplicados = sum(~mascara_duplicados[inicio_nuevos:])
-            
-            st.warning(f"⚠️ De {len(df_nuevos_datos)} registros nuevos, {registros_nuevos_no_duplicados} NO fueron detectados como duplicados")
-            
-            if registros_nuevos_no_duplicados > 0 and registros_nuevos_no_duplicados < len(df_nuevos_datos):
-                st.write("Esto significa que ALGUNOS se detectaron y OTROS NO. Investigando diferencias...")
-                
-        if registros_nuevos_no_duplicados > 0 and registros_nuevos_no_duplicados < len(df_nuevos_datos):
-            st.write("Esto significa que ALGUNOS se detectaron y OTROS NO. Investigando diferencias...")
-            
-            # Obtener los índices de registros nuevos que NO fueron detectados como duplicados
-            indices_nuevos_no_detectados = []
-            for i in range(inicio_nuevos, len(df_combinado)):
-                if not mascara_duplicados[i]:
-                    indices_nuevos_no_detectados.append(i)
-            
-            if indices_nuevos_no_detectados:
-                # Tomar el primer registro nuevo que NO se detectó como duplicado
-                indice_problema = indices_nuevos_no_detectados[0]
-                
-                st.write(f"#### Analizando registro en índice {indice_problema} (NO detectado como duplicado)")
-                
-                # Buscar registros existentes que tengan el mismo "Código" (columna clave)
-                if 'Código' in df_temp_string.columns:
-                    codigo_buscar = df_temp_string.iloc[indice_problema]['Código']
-                    
-                    st.write(f"Buscando en registros existentes con Código: **{codigo_buscar}**")
-                    
-                    # Buscar en los registros existentes (antes de inicio_nuevos)
-                    posible_gemelo = None
-                    for i in range(inicio_nuevos):
-                        if df_temp_string.iloc[i]['Código'] == codigo_buscar:
-                            posible_gemelo = i
-                            break
-                    
-                    if posible_gemelo is not None:
-                        st.success(f"✅ Encontrado posible gemelo en índice {posible_gemelo}")
-                        
-                        # Comparar TODAS las columnas entre estos dos registros
-                        diferencias_detalladas = []
-                        for col in df_temp_string.columns:
-                            val_existente = df_temp_string.iloc[posible_gemelo][col]
-                            val_nuevo = df_temp_string.iloc[indice_problema][col]
-                            
-                            if val_existente != val_nuevo:
-                                # Mostrar también el tipo y longitud para debugging
-                                diferencias_detalladas.append({
-                                    'Columna': col,
-                                    'Valor Existente (ya string)': f'"{val_existente}" (len={len(val_existente)})',
-                                    'Valor Nuevo (ya string)': f'"{val_nuevo}" (len={len(val_nuevo)})',
-                                    'Son iguales?': 'NO ❌'
-                                })
-                        
-                        if diferencias_detalladas:
-                            st.error(f"❌ Encontradas {len(diferencias_detalladas)} columnas diferentes:")
-                            st.dataframe(pd.DataFrame(diferencias_detalladas))
-                            
-                            # Mostrar también los valores ORIGINALES (antes de convertir a string)
-                            st.write("#### Valores ORIGINALES (con tipos de datos originales):")
-                            diferencias_originales = []
-                            for col in df_combinado.columns:
-                                val_orig_existente = df_combinado.iloc[posible_gemelo][col]
-                                val_orig_nuevo = df_combinado.iloc[indice_problema][col]
-                                tipo_existente = type(val_orig_existente).__name__
-                                tipo_nuevo = type(val_orig_nuevo).__name__
-                                
-                                if str(val_orig_existente) != str(val_orig_nuevo):
-                                    diferencias_originales.append({
-                                        'Columna': col,
-                                        'Valor Existente': val_orig_existente,
-                                        'Tipo Existente': tipo_existente,
-                                        'Valor Nuevo': val_orig_nuevo,
-                                        'Tipo Nuevo': tipo_nuevo
-                                    })
-                            
-                            if diferencias_originales:
-                                st.dataframe(pd.DataFrame(diferencias_originales))
-                        else:
-                            st.success("✅ Todos los valores son iguales (esto NO debería pasar)")
-                    else:
-                        st.warning(f"⚠️ No se encontró un registro existente con Código {codigo_buscar}")
         
         # Contar duplicados encontrados
         duplicados_encontrados = mascara_duplicados.sum()
@@ -703,6 +625,94 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
                 status_placeholder.info(f"📋 Ejemplos de índices de filas duplicadas: {indices_duplicados}")
         else:
             status_placeholder.success("✅ No se encontraron registros duplicados.")
+        
+        # ====== INVESTIGAR REGISTROS NO DETECTADOS ======
+        if len(df_nuevos_datos) > 0:
+            st.write("### 🔍 INVESTIGANDO REGISTROS NO DETECTADOS COMO DUPLICADOS")
+            
+            # Los nuevos datos están al final del df_combinado
+            inicio_nuevos = len(df_existente)
+            
+            # Ver cuántos de los nuevos NO fueron marcados como duplicados
+            registros_nuevos_no_duplicados = sum(~mascara_duplicados[inicio_nuevos:])
+            
+            st.warning(f"⚠️ De {len(df_nuevos_datos)} registros nuevos, {registros_nuevos_no_duplicados} NO fueron detectados como duplicados")
+            
+            if registros_nuevos_no_duplicados > 0 and registros_nuevos_no_duplicados < len(df_nuevos_datos):
+                st.write("Esto significa que ALGUNOS se detectaron y OTROS NO. Investigando diferencias...")
+                
+                # Obtener los índices de registros nuevos que NO fueron detectados como duplicados
+                indices_nuevos_no_detectados = []
+                for i in range(inicio_nuevos, len(df_combinado)):
+                    if not mascara_duplicados[i]:
+                        indices_nuevos_no_detectados.append(i)
+                
+                if indices_nuevos_no_detectados:
+                    # Tomar el primer registro nuevo que NO se detectó como duplicado
+                    indice_problema = indices_nuevos_no_detectados[0]
+                    
+                    st.write(f"#### Analizando registro en índice {indice_problema} (NO detectado como duplicado)")
+                    
+                    # Buscar registros existentes que tengan el mismo "Código" (columna clave)
+                    if 'Código' in df_temp_string.columns:
+                        codigo_buscar = df_temp_string.iloc[indice_problema]['Código']
+                        
+                        st.write(f"Buscando en registros existentes con Código: **{codigo_buscar}**")
+                        
+                        # Buscar en los registros existentes (antes de inicio_nuevos)
+                        posible_gemelo = None
+                        for i in range(inicio_nuevos):
+                            if df_temp_string.iloc[i]['Código'] == codigo_buscar:
+                                posible_gemelo = i
+                                break
+                        
+                        if posible_gemelo is not None:
+                            st.success(f"✅ Encontrado posible gemelo en índice {posible_gemelo}")
+                            
+                            # Comparar TODAS las columnas entre estos dos registros
+                            diferencias_detalladas = []
+                            for col in df_temp_string.columns:
+                                val_existente = df_temp_string.iloc[posible_gemelo][col]
+                                val_nuevo = df_temp_string.iloc[indice_problema][col]
+                                
+                                if val_existente != val_nuevo:
+                                    # Mostrar también el tipo y longitud para debugging
+                                    diferencias_detalladas.append({
+                                        'Columna': col,
+                                        'Valor Existente (ya string)': f'"{val_existente}" (len={len(val_existente)})',
+                                        'Valor Nuevo (ya string)': f'"{val_nuevo}" (len={len(val_nuevo)})',
+                                        'Son iguales?': 'NO ❌'
+                                    })
+                            
+                            if diferencias_detalladas:
+                                st.error(f"❌ Encontradas {len(diferencias_detalladas)} columnas diferentes:")
+                                st.dataframe(pd.DataFrame(diferencias_detalladas))
+                                
+                                # Mostrar también los valores ORIGINALES (antes de convertir a string)
+                                st.write("#### Valores ORIGINALES (con tipos de datos originales):")
+                                diferencias_originales = []
+                                for col in df_combinado.columns:
+                                    val_orig_existente = df_combinado.iloc[posible_gemelo][col]
+                                    val_orig_nuevo = df_combinado.iloc[indice_problema][col]
+                                    tipo_existente = type(val_orig_existente).__name__
+                                    tipo_nuevo = type(val_orig_nuevo).__name__
+                                    
+                                    if str(val_orig_existente) != str(val_orig_nuevo):
+                                        diferencias_originales.append({
+                                            'Columna': col,
+                                            'Valor Existente': val_orig_existente,
+                                            'Tipo Existente': tipo_existente,
+                                            'Valor Nuevo': val_orig_nuevo,
+                                            'Tipo Nuevo': tipo_nuevo
+                                        })
+                                
+                                if diferencias_originales:
+                                    st.dataframe(pd.DataFrame(diferencias_originales))
+                            else:
+                                st.success("✅ Todos los valores son iguales (esto NO debería pasar)")
+                        else:
+                            st.warning(f"⚠️ No se encontró un registro existente con Código {codigo_buscar}")
+        # ====== FIN INVESTIGACIÓN ======
         
         # FILTRAR el DataFrame ORIGINAL (con tipos de datos originales intactos)
         # usando la máscara de duplicados identificada
