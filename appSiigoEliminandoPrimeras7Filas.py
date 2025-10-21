@@ -479,215 +479,96 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
 def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
     """
     Agrega datos a la primera hoja de un archivo Excel en SharePoint,
-    preservando fórmulas, formatos y otras hojas.
-    
-    INCLUYE:
-    - Normalización de tipos de datos (códigos como texto, valores como números)
-    - Fechas mantenidas en su formato original (sin conversión a datetime)
-    - Detección de duplicados mejorada basada en columnas clave
+    preservando fórmulas, formatos y otras hojas, y eliminando duplicados
+    mediante comparación temporal de strings sin modificar los tipos de datos originales.
     """
-    status_placeholder.info(f"🔄 Iniciando actualización de: '{ruta_archivo.split('/')[-1]}'")
-
     try:
-        # =====================================================================
         # PASO 1: Descargar el archivo existente con validaciones
-        # =====================================================================
-        status_placeholder.info("1/5 - Descargando y validando archivo...")
         contenido_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo)
         if contenido_bytes is None:
-            status_placeholder.error("❌ Falla en la descarga o validación del archivo.")
             return False
 
         contenido_en_memoria = io.BytesIO(contenido_bytes)
 
-        # =====================================================================
         # PASO 2: Cargar el libro de trabajo completo con openpyxl
-        # =====================================================================
-        status_placeholder.info("2/5 - Cargando estructura del archivo...")
         libro = openpyxl.load_workbook(contenido_en_memoria)
         
-        # Trabajar con la primera hoja
         nombre_hoja_destino = libro.sheetnames[0]
         hoja = libro[nombre_hoja_destino]
         
-        # Leer los datos existentes
-        df_existente = pd.read_excel(
-            io.BytesIO(contenido_bytes), 
-            sheet_name=nombre_hoja_destino, 
-            engine='openpyxl'
-        )
+        # Leer los datos de esa hoja en un DataFrame
+        df_existente = pd.read_excel(io.BytesIO(contenido_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_existente.reset_index(drop=True, inplace=True)
 
-        # =====================================================================
-        # PASO 3: Combinar datos y NORMALIZAR TIPOS DE DATOS
-        # =====================================================================
-        status_placeholder.info("3/5 - Combinando datos...")
+        # PASO 3: Combinar datos y eliminar duplicados
+        status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
-
-        # --- NORMALIZACIÓN DE TIPOS DE DATOS ---
-        status_placeholder.info("3.1/5 - Normalizando tipos de datos para comparación...")
         
-        # COLUMNAS QUE SON CÓDIGOS/IDENTIFICADORES/FECHAS (deben ser TEXTO)
-        # Aunque contengan solo números, son identificadores, no valores matemáticos
-        columnas_codigo = [
-            'Línea',                    # Código de línea de producto
-            'Sublínea',                 # Código de sublínea
-            'Vendedor',                 # Identificación del vendedor
-            'Identificación',           # NIT del cliente
-            'Código',                   # Código del producto
-            'Numero comprobante',       # Número de factura calculado (FLE/FSE)
-            'Número comprobante',       # Número de comprobante original
-            'Clasificación Producto',
-            'Tipo Bien',                # P o S
-            'Nombre',
-            'Nombre tercero',
-            'Observaciones',
-            'Fecha elaboración',        # FECHA mantenida como texto original
-            'Descripción Línea',
-            'Descripción Sublínea',
-            'Consecutivo',
-            'Factura proveedor',
-            # Columnas relacionadas
-            'REL_Número comprobante',
-            'REL_Consecutivo',
-            'REL_Nombre tercero',
-            'REL_Factura proveedor',
-            'REL_Identificación'
-        ]
-        
-        # COLUMNAS NUMÉRICAS (solo las que se usan para cálculos matemáticos)
-        columnas_numericas = [
-            'Cantidad',                 # Cantidad vendida
-            'Valor unitario',           # Precio unitario
-            'Total',                    # Total de la venta
-            'Tasa de cambio',           # TRM
-            'Valor Total ME',           # Valor en moneda extranjera
-            # Columnas relacionadas
-            'REL_Cantidad',
-            'REL_Valor unitario',
-            'REL_Total',
-            'REL_Tasa de cambio',
-            'REL_Valor Total ME'
-        ]
-        
-        # 1. Convertir columnas de CÓDIGOS/IDENTIFICADORES/FECHAS a TEXTO
-        status_placeholder.info("   → Convirtiendo códigos, identificadores y fechas a texto...")
-        for col in columnas_codigo:
-            if col in df_combinado.columns:
-                try:
-                    # Convertir a string y limpiar
-                    df_combinado[col] = (
-                        df_combinado[col]
-                        .fillna('')                              # NaN → string vacío
-                        .astype(str)                             # Todo a string
-                        .str.replace('.0', '', regex=False)      # Quitar .0 de floats (5.0 → 5)
-                        .str.strip()                             # Eliminar espacios
-                    )
-                except Exception as e:
-                    status_placeholder.warning(f"⚠️ No se pudo convertir columna '{col}': {e}")
-        
-        # 2. Convertir columnas NUMÉRICAS a números
-        status_placeholder.info("   → Convirtiendo valores numéricos...")
-        for col in columnas_numericas:
-            if col in df_combinado.columns:
-                try:
-                    # Limpiar comas y convertir a numérico
-                    df_combinado[col] = pd.to_numeric(
-                        df_combinado[col]
-                        .astype(str)
-                        .str.replace(',', '', regex=False)       # Quitar comas de miles
-                        .str.strip(),                            # Eliminar espacios
-                        errors='coerce'                          # Valores inválidos → NaN
-                    ).fillna(0)                                  # NaN → 0
-                except Exception as e:
-                    status_placeholder.warning(f"⚠️ No se pudo convertir columna '{col}': {e}")
-        
-        status_placeholder.success("✅ Tipos de datos normalizados correctamente")
-
-        # =====================================================================
-        # PASO 4: DETECCIÓN Y ELIMINACIÓN DE DUPLICADOS
-        # =====================================================================
-        status_placeholder.info("4/5 - Validando registros duplicados...")
-        
+        # ====== DETECCIÓN DE DUPLICADOS CON COMPARACIÓN TEMPORAL STRING ======
         filas_antes = len(df_combinado)
+        status_placeholder.info(f"📊 Total de filas antes de verificar duplicados: {filas_antes}")
         
-        # Definir las columnas que identifican un registro único de venta
-        # Si estas columnas son iguales, es la MISMA venta (duplicado)
-        columnas_clave_ventas = [
-            'Tipo Bien',           # P (Producto) o S (Servicio)
-            'Código',              # Código del producto/servicio
-            'Línea',
-            'Sublínea',
-            'Nombre',
-            'Numero comprobante',  # FLE-XXX o FSE-XXX (el calculado)
-            'Fecha elaboración',   # Fecha de la venta
-            'Identificación',      # NIT del cliente
-            'Cantidad',            # Cantidad vendida
-            'Valor unitario' ,      # Precio unitario
-            'Valor Total ME',
-            'Observaciones'
-        ]
+        # CREAR COPIA TEMPORAL DE TODO EL DATAFRAME PARA COMPARACIÓN
+        df_temp_string = df_combinado.copy()
         
-        # Filtrar solo las columnas que realmente existen en el DataFrame
-        columnas_existentes = [col for col in columnas_clave_ventas if col in df_combinado.columns]
+        status_placeholder.info(f"🔍 Convirtiendo {len(df_temp_string.columns)} columnas a string para comparación...")
         
-        if len(columnas_existentes) >= 3:  # Necesitamos al menos 3 columnas para validar
-            # Eliminar duplicados basándose SOLO en las columnas clave
-            # Las columnas REL_* y Observaciones NO se consideran para detectar duplicados
-            df_sin_duplicados = df_combinado.drop_duplicates(
-                subset=columnas_existentes,    # Solo compara estas columnas
-                keep='first'                   # Mantener la primera aparición, eliminar las demás
-            )
-            
-            filas_despues = len(df_sin_duplicados)
-            duplicados_encontrados = filas_antes - filas_despues
-            
-            if duplicados_encontrados > 0:
-                status_placeholder.warning(
-                    f"⚠️ Se encontraron y omitieron **{duplicados_encontrados}** registros duplicados."
-                )
-                status_placeholder.info(
-                    f"📋 Columnas usadas para validación: {', '.join(columnas_existentes)}"
-                )
-            else:
-                status_placeholder.success("✅ No se encontraron registros duplicados.")
-        else:
-            # Si no hay suficientes columnas clave, usar método básico
+        # Convertir TODAS las columnas a string para comparación uniforme
+        for col in df_temp_string.columns:
+            # Convertir a string, reemplazando NaN con string vacío y eliminando espacios
+            df_temp_string[col] = df_temp_string[col].astype(str).replace('nan', '').replace('None', '').str.strip()
+        
+        status_placeholder.info("✅ Todas las columnas convertidas a string temporalmente.")
+        
+        # IDENTIFICAR duplicados usando la versión temporal en string
+        # Esto compara TODAS las columnas de cada registro
+        mascara_duplicados = df_temp_string.duplicated(keep='first')
+        
+        # Contar duplicados encontrados
+        duplicados_encontrados = mascara_duplicados.sum()
+        
+        if duplicados_encontrados > 0:
             status_placeholder.warning(
-                f"⚠️ Solo se encontraron {len(columnas_existentes)} columnas clave. "
-                "Se requieren al menos 3. Se usará validación básica."
+                f"⚠️ Se encontraron {duplicados_encontrados} registros duplicados que serán omitidos."
             )
-            df_sin_duplicados = df_combinado.drop_duplicates(keep='first')
-            filas_antes = len(df_combinado)
-            filas_despues = len(df_sin_duplicados)
-            duplicados_encontrados = filas_antes - filas_despues
-            if duplicados_encontrados > 0:
-                status_placeholder.warning(f"⚠️ Se omitieron {duplicados_encontrados} filas completamente duplicadas.")
+            
+            # Opcional: Mostrar algunos ejemplos de duplicados para debug
+            indices_duplicados = df_combinado[mascara_duplicados].index.tolist()[:3]
+            if indices_duplicados:
+                status_placeholder.info(f"📋 Ejemplos de índices de filas duplicadas: {indices_duplicados}")
+        else:
+            status_placeholder.success("✅ No se encontraron registros duplicados.")
         
-        # =====================================================================
-        # PASO 5: Limpiar columnas "Unnamed"
-        # =====================================================================
+        # FILTRAR el DataFrame ORIGINAL (con tipos de datos originales intactos)
+        # usando la máscara de duplicados identificada
+        df_sin_duplicados = df_combinado[~mascara_duplicados].copy()
+        
+        filas_despues = len(df_sin_duplicados)
+        status_placeholder.success(f"✅ Filas finales después de eliminar duplicados: {filas_despues}")
+        
+        # ====== FIN DETECCIÓN DE DUPLICADOS ======
+        
+        # Limpiar columnas "Unnamed"
         cols_a_eliminar = [col for col in df_sin_duplicados.columns if 'Unnamed:' in str(col)]
         if cols_a_eliminar:
             df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True)
             status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
 
-        # =====================================================================
-        # PASO 6: Escribir los datos actualizados y subir
-        # =====================================================================
-        status_placeholder.info("5/5 - Escribiendo datos y subiendo archivo...")
+        # PASO 4: Escribir los datos actualizados de vuelta a la hoja
+        status_placeholder.info("4/4 - Escribiendo datos y subiendo el archivo final...")
         
-        # Usar el DataFrame limpio y sin duplicados
-        df_final = df_sin_duplicados
+        # Usar el DataFrame limpio (sin duplicados, pero con tipos originales)
+        df_combinado = df_sin_duplicados
+        hoja = libro[nombre_hoja_destino]
         
         # Borrar datos antiguos de la hoja (excepto encabezados)
         for r in range(hoja.max_row, 1, -1):
             hoja.delete_rows(r)
+            
+        from openpyxl.utils.dataframe import dataframe_to_rows    
         
-        from openpyxl.utils.dataframe import dataframe_to_rows
-        
-        # Escribir el contenido del DataFrame en la hoja
-        for r_idx, row in enumerate(dataframe_to_rows(df_final, index=False, header=False), 2):
+        # Escribir el contenido del DataFrame combinado en la hoja
+        for r_idx, row in enumerate(dataframe_to_rows(df_sin_duplicados, index=False, header=False), 2):
             for c_idx, value in enumerate(row, 1):
                 hoja.cell(row=r_idx, column=c_idx, value=value)
         
@@ -695,19 +576,16 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         output = io.BytesIO()
         libro.save(output)
         
-        # Subir el archivo final a SharePoint
+        # Subir el archivo final
         endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
         response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
         response_put.raise_for_status()
 
-        status_placeholder.success(
-            f"✅ ¡Archivo '{ruta_archivo.split('/')[-1]}' actualizado correctamente! "
-            f"({len(df_final)} registros totales)"
-        )
+        status_placeholder.success(f"✅ ¡Archivo '{ruta_archivo.split('/')[-1]}' actualizado preservando su formato!")
         return True
 
     except Exception as e:
-        status_placeholder.error(f"❌ Error al actualizar el archivo: {e}")
+        status_placeholder.error(f"❌ Falló la actualización del archivo. Error: {e}")
         import traceback
         status_placeholder.error(f"Detalles del error: {traceback.format_exc()}")
         return False
