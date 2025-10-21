@@ -599,6 +599,21 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         # Esto compara TODAS las columnas de cada registro
         mascara_duplicados = df_temp_string.duplicated(keep='first')
         
+        # Identificar registros que DEBERÍAN ser duplicados pero no se detectaron
+        if len(df_nuevos_datos) > 0:
+            st.write("### 🔍 INVESTIGANDO REGISTROS NO DETECTADOS COMO DUPLICADOS")
+            
+            # Los nuevos datos están al final del df_combinado
+            inicio_nuevos = len(df_existente)
+            
+            # Ver cuántos de los nuevos NO fueron marcados como duplicados
+            registros_nuevos_no_duplicados = sum(~mascara_duplicados[inicio_nuevos:])
+            
+            st.warning(f"⚠️ De {len(df_nuevos_datos)} registros nuevos, {registros_nuevos_no_duplicados} NO fueron detectados como duplicados")
+            
+            if registros_nuevos_no_duplicados > 0 and registros_nuevos_no_duplicados < len(df_nuevos_datos):
+                st.write("Esto significa que ALGUNOS se detectaron y OTROS NO. Investigando diferencias...")
+        
         # Contar duplicados encontrados
         duplicados_encontrados = mascara_duplicados.sum()
         
