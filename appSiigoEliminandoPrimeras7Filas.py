@@ -500,6 +500,72 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         df_existente = pd.read_excel(io.BytesIO(contenido_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_existente.reset_index(drop=True, inplace=True)
 
+        # ====== DIAGNÓSTICO: COMPARAR TIPOS DE DATOS ======
+        status_placeholder.info("🔍 DIAGNÓSTICO: Comparando tipos de datos...")
+        
+        st.write("### 📊 TIPOS DE DATOS - ARCHIVO EXISTENTE (Fila 2 / Índice 0)")
+        if len(df_existente) > 0:
+            st.write("**Tipos de datos por columna:**")
+            tipos_existente = {}
+            for col in df_existente.columns:
+                valor = df_existente.iloc[0][col]
+                tipo = type(valor).__name__
+                tipos_existente[col] = f"{tipo} | Valor: {valor}"
+            
+            # Mostrar en formato tabla
+            st.dataframe(pd.DataFrame({
+                'Columna': list(tipos_existente.keys()),
+                'Tipo y Valor': list(tipos_existente.values())
+            }))
+        else:
+            st.warning("⚠️ El archivo existente no tiene datos")
+        
+        st.write("### 📊 TIPOS DE DATOS - DATOS NUEVOS (Primera fila nueva / Índice 0)")
+        if len(df_nuevos_datos) > 0:
+            st.write("**Tipos de datos por columna:**")
+            tipos_nuevos = {}
+            for col in df_nuevos_datos.columns:
+                valor = df_nuevos_datos.iloc[0][col]
+                tipo = type(valor).__name__
+                tipos_nuevos[col] = f"{tipo} | Valor: {valor}"
+            
+            # Mostrar en formato tabla
+            st.dataframe(pd.DataFrame({
+                'Columna': list(tipos_nuevos.keys()),
+                'Tipo y Valor': list(tipos_nuevos.values())
+            }))
+        else:
+            st.warning("⚠️ No hay datos nuevos para agregar")
+        
+        st.write("### 🔍 COMPARACIÓN DE DIFERENCIAS")
+        # Comparar columnas comunes
+        columnas_comunes = set(df_existente.columns) & set(df_nuevos_datos.columns)
+        diferencias_tipo = []
+        
+        for col in columnas_comunes:
+            if len(df_existente) > 0 and len(df_nuevos_datos) > 0:
+                tipo_existente = type(df_existente.iloc[0][col]).__name__
+                tipo_nuevo = type(df_nuevos_datos.iloc[0][col]).__name__
+                
+                if tipo_existente != tipo_nuevo:
+                    valor_existente = df_existente.iloc[0][col]
+                    valor_nuevo = df_nuevos_datos.iloc[0][col]
+                    diferencias_tipo.append({
+                        'Columna': col,
+                        'Tipo Existente': tipo_existente,
+                        'Valor Existente': valor_existente,
+                        'Tipo Nuevo': tipo_nuevo,
+                        'Valor Nuevo': valor_nuevo
+                    })
+        
+        if diferencias_tipo:
+            st.error("❌ COLUMNAS CON TIPOS DE DATOS DIFERENTES:")
+            st.dataframe(pd.DataFrame(diferencias_tipo))
+        else:
+            st.success("✅ Todos los tipos de datos coinciden en columnas comunes")
+        
+        # ====== FIN DIAGNÓSTICO ======
+
         # PASO 3: Combinar datos y eliminar duplicados
         status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
