@@ -11,6 +11,7 @@ import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.worksheet.table import TableColumn
 from openpyxl.utils import get_column_letter
+from pandas.api.types import is_object_dtype
 
 # ==============================================================================
 # CONFIGURACIÓN DE SHAREPOINT Y AZURE
@@ -477,84 +478,81 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
 
 def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
     """
-    Agrega datos a la primera hoja de un archivo Excel en SharePoint,
-    preservando fórmulas, formatos y otras hojas.
-    VERSIÓN CORREGIDA: Normaliza tipos a string para una deduplicación robusta.
+    Agrega datos a un Excel en SharePoint.
+    VERSIÓN 5.0: Normalización de tipos (String vs Numérico) y espacios en blanco,
+    SIN REDONDEO de decimales, según solicitud.
     """
-    #status_placeholder.info(f"🔄 Iniciando actualización avanzada de: '{ruta_archivo.split('/')[-1]}'")
-
+    
     try:
-        # PASO 1: Descargar el archivo existente con validaciones
-        #status_placeholder.info("1/4 - Descargando y validando archivo...")
+        # PASO 1: Descargar el archivo existente
         contenido_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo)
-        if contenido_bytes is None:
-            #status_placeholder.error("❌ Falla en la descarga o validación del archivo.")
-            return False
-
+        if contenido_bytes is None: return False
         contenido_en_memoria = io.BytesIO(contenido_bytes)
 
-        # PASO 2: Cargar el libro de trabajo completo con openpyxl
-        #status_placeholder.info("2/4 - Cargando estructura del archivo (formatos, hojas)...")
+        # PASO 2: Cargar el libro y los datos existentes
         libro = openpyxl.load_workbook(contenido_en_memoria)
-        
         nombre_hoja_destino = libro.sheetnames[0]
         hoja = libro[nombre_hoja_destino]
         
-        # Leer los datos de esa hoja en un DataFrame para facilitar la manipulación
         df_existente = pd.read_excel(io.BytesIO(contenido_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_existente.reset_index(drop=True, inplace=True)
 
-        # PASO 3: Combinar los datos y limpiar columnas "Unnamed"
-        #status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
+        # PASO 3: Combinar y preparar para deduplicación
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
-        
-        # --- INICIO DE LA LÓGICA DE DEDUPLICACIÓN CORREGIDA ---
-        status_placeholder.info("Normalizando tipos para buscar duplicados...")
-        
-        # 1. Crear una copia temporal de 'df_combinado' con todos los datos como string.
-        #    Esto asegura que '70' (str) y 70 (int) se traten como iguales ('70').
-        #    Usamos .fillna('') para que los NaN (nulos) se traten igual en la comparación.
-        df_combinado_str = df_combinado.fillna('').astype(str)
-        
-        # 2. Identificar las filas duplicadas en la versión string
-        #    keep='first' marca todas las apariciones *después* de la primera como True.
-        duplicados_mask = df_combinado_str.duplicated(keep='first')
-        
         filas_antes = len(df_combinado)
+
+        # --- INICIO DE LA LÓGICA DE DEDUPLICACIÓN (VERSIÓN 5.0) ---
+        status_placeholder.info("Normalizando tipos (sin redondeo) para buscar duplicados...")
         
-        # 3. Invertir la máscara (~) para quedarnos solo con las filas que NO son duplicadas (keep='first')
-        #    Filtramos el DataFrame *original* (df_combinado) para mantener los tipos de datos correctos.
+        # 1. Crear la copia temporal para la comparación
+        df_comparacion = df_combinado.copy()
+        
+        # 2. Normalizar la copia: convertir todo a string estándar y limpiar
+        for col in df_comparacion.columns:
+            # Si es texto (object), quitar espacios ANTES de convertir
+            if is_object_dtype(df_comparacion[col]):
+                df_comparacion[col] = df_comparacion[col].astype(str).str.strip()
+            else:
+                # Para números y fechas, solo convertir a str
+                df_comparacion[col] = df_comparacion[col].astype(str)
+        
+        # Rellenar cualquier nulo (NaN, NaT) que se haya convertido en 'nan' o 'None'
+        # Esto asegura que los nulos se comparen correctamente
+        df_comparacion = df_comparacion.replace(['nan', 'None', 'NaT', '<NA>'], '').fillna('')
+
+        # 3. Identificar duplicados en la copia 100% string
+        duplicados_mask = df_comparacion.duplicated(keep='first')
+        
+        # 4. Filtrar el DataFrame *original* (con tipos correctos)
+        #    (El ~ invierte la máscara para quedarnos con los NO duplicados)
         df_sin_duplicados = df_combinado[~duplicados_mask]
         
         filas_despues = len(df_sin_duplicados)
-        # --- FIN DE LA LÓGICA CORREGIDA ---
+        # --- FIN DE LA LÓGICA ---
         
         duplicados_encontrados = filas_antes - filas_despues
+        
         if duplicados_encontrados > 0:
             status_placeholder.warning(f"⚠️ Se encontraron y omitieron {duplicados_encontrados} registros duplicados.")
         else:
             status_placeholder.info("✅ No se encontraron registros duplicados.")
         
+        # --- CONTINÚA EL CÓDIGO ORIGINAL ---
+        
         cols_a_eliminar = [col for col in df_sin_duplicados.columns if 'Unnamed:' in str(col)]
         if cols_a_eliminar:
-            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True)
-            #status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
+            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True, errors='ignore')
 
-        # PASO 4: Escribir los datos actualizados de vuelta a la hoja, preservando el resto
-        #status_placeholder.info("4/4 - Escribiendo datos y subiendo el archivo final...")
-        
-        # Asegúrate de usar el DataFrame limpio para el resto del proceso
-        df_combinado = df_sin_duplicados # <-- ¡Importante!
+        # PASO 4: Escribir los datos actualizados de vuelta a la hoja
         hoja = libro[nombre_hoja_destino]
         
-        # Borrar datos antiguos de la hoja (excepto encabezados) para evitar duplicados
+        # Borrar datos antiguos de la hoja (excepto encabezados)
         for r in range(hoja.max_row, 1, -1):
             hoja.delete_rows(r)
             
         from openpyxl.utils.dataframe import dataframe_to_rows   
         
-        # Escribir el contenido del DataFrame combinado en la hoja
-        # (Usamos df_sin_duplicados que tiene los tipos de datos originales correctos)
+        # Escribir el DataFrame ORIGINAL filtrado (con los 7 decimales)
         for r_idx, row in enumerate(dataframe_to_rows(df_sin_duplicados, index=False, header=False), 2):
             for c_idx, value in enumerate(row, 1):
                 hoja.cell(row=r_idx, column=c_idx, value=value)
@@ -568,7 +566,6 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
         response_put.raise_for_status()
 
-        #status_placeholder.success(f"✅ ¡Archivo '{ruta_archivo.split('/')[-1]}' actualizado preservando su formato!")
         return True
 
     except Exception as e:
