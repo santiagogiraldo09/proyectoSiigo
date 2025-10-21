@@ -477,9 +477,9 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
 
 def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
     """
-    Agrega datos a la primera hoja de un archivo Excel en SharePoint.
-    VERSIÓN CORREGIDA 3.0: Normaliza tipos, redondea decimales y maneja fechas
-    para una deduplicación robusta.
+    Agrega datos a la primera hoja de un archivo Excel en SharePoint,
+    preservando fórmulas, formatos y otras hojas.
+    VERSIÓN CORREGIDA: Normaliza tipos a string para una deduplicación robusta.
     """
     #status_placeholder.info(f"🔄 Iniciando actualización avanzada de: '{ruta_archivo.split('/')[-1]}'")
 
@@ -507,69 +507,54 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         # PASO 3: Combinar los datos y limpiar columnas "Unnamed"
         #status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
+        
+        # --- INICIO DE LA LÓGICA DE DEDUPLICACIÓN CORREGIDA ---
+        status_placeholder.info("Normalizando tipos para buscar duplicados...")
+        
+        # 1. Crear una copia temporal de 'df_combinado' con todos los datos como string.
+        #    Esto asegura que '70' (str) y 70 (int) se traten como iguales ('70').
+        #    Usamos .fillna('') para que los NaN (nulos) se traten igual en la comparación.
+        df_combinado_str = df_combinado.fillna('').astype(str)
+        
+        # 2. Identificar las filas duplicadas en la versión string
+        #    keep='first' marca todas las apariciones *después* de la primera como True.
+        duplicados_mask = df_combinado_str.duplicated(keep='first')
+        
         filas_antes = len(df_combinado)
-
-        # --- INICIO DE LA LÓGICA DE DEDUPLICACIÓN (VERSIÓN 3 - ROBUSTA) ---
-        status_placeholder.info("Normalizando tipos (incluyendo redondeo) para buscar duplicados...")
         
-        # 1. Crear una copia temporal para la comparación
-        df_comparacion = df_combinado.copy()
-        
-        # 2. Normalizar la copia
-        for col in df_comparacion.columns:
-            # Identificar columnas numéricas (enteros o flotantes)
-            if pd.api.types.is_numeric_dtype(df_comparacion[col]):
-                # Si son flotantes, redondearlas para evitar problemas de precisión
-                # Usamos 6 decimales como un estándar seguro
-                if pd.api.types.is_float_dtype(df_comparacion[col]):
-                    df_comparacion[col] = df_comparacion[col].round(6)
-            
-            # Identificar columnas de fecha/hora (que también pueden causar problemas)
-            elif pd.api.types.is_datetime64_any_dtype(df_comparacion[col]):
-                # Convertir a string estándar (ISO) para que coincidan
-                df_comparacion[col] = df_comparacion[col].astype(str) 
-
-        # 3. Ahora que los tipos problemáticos están normalizados, convertir todo a string
-        #    para la comparación final. .fillna('') asegura que los nulos (None, NaN)
-        #    se traten de la misma manera.
-        df_comparacion = df_comparacion.fillna('').astype(str)
-
-        # 4. Identificar duplicados en la copia normalizada
-        duplicados_mask = df_comparacion.duplicated(keep='first')
-        
-        # 5. Filtrar el DataFrame *original* (con tipos correctos) usando la máscara
-        #    (El ~ invierte la máscara para quedarnos con los NO duplicados)
+        # 3. Invertir la máscara (~) para quedarnos solo con las filas que NO son duplicadas (keep='first')
+        #    Filtramos el DataFrame *original* (df_combinado) para mantener los tipos de datos correctos.
         df_sin_duplicados = df_combinado[~duplicados_mask]
         
         filas_despues = len(df_sin_duplicados)
         # --- FIN DE LA LÓGICA CORREGIDA ---
         
         duplicados_encontrados = filas_antes - filas_despues
-        
         if duplicados_encontrados > 0:
-            status_placeholder.warning(f"⚠️ Se encontraron y omitieron {duplicados_encontrados} registros duplicados en el archivo de ventas.")
+            status_placeholder.warning(f"⚠️ Se encontraron y omitieron {duplicados_encontrados} registros duplicados.")
         else:
-            status_placeholder.info("✅ No se encontraron registros duplicados en el archivo de ventas.")
-        
-        # --- CONTINÚA EL CÓDIGO ORIGINAL ---
+            status_placeholder.info("✅ No se encontraron registros duplicados.")
         
         cols_a_eliminar = [col for col in df_sin_duplicados.columns if 'Unnamed:' in str(col)]
         if cols_a_eliminar:
-            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True, errors='ignore')
+            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True)
             #status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
 
         # PASO 4: Escribir los datos actualizados de vuelta a la hoja, preservando el resto
         #status_placeholder.info("4/4 - Escribiendo datos y subiendo el archivo final...")
         
+        # Asegúrate de usar el DataFrame limpio para el resto del proceso
+        df_combinado = df_sin_duplicados # <-- ¡Importante!
         hoja = libro[nombre_hoja_destino]
         
-        # Borrar datos antiguos de la hoja (excepto encabezados)
+        # Borrar datos antiguos de la hoja (excepto encabezados) para evitar duplicados
         for r in range(hoja.max_row, 1, -1):
             hoja.delete_rows(r)
             
         from openpyxl.utils.dataframe import dataframe_to_rows   
         
-        # Escribir el contenido del DataFrame SIN DUPLICADOS (con tipos originales)
+        # Escribir el contenido del DataFrame combinado en la hoja
+        # (Usamos df_sin_duplicados que tiene los tipos de datos originales correctos)
         for r_idx, row in enumerate(dataframe_to_rows(df_sin_duplicados, index=False, header=False), 2):
             for c_idx, value in enumerate(row, 1):
                 hoja.cell(row=r_idx, column=c_idx, value=value)
@@ -587,11 +572,6 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         return True
 
     except Exception as e:
-        # Añadir 'inplace=True' a df_sin_duplicados.drop a veces da un SettingWithCopyWarning,
-        # lo manejamos aquí por si causa un error real, aunque es improbable.
-        if "SettingWithCopyWarning" in str(e):
-            status_placeholder.warning("Se produjo un 'SettingWithCopyWarning' pero el proceso debería continuar.")
-            return True # Asumimos que el guardado funcionó si el error es solo el warning
         status_placeholder.error(f"❌ Falló la actualización del archivo. Error: {e}")
         return False
 
