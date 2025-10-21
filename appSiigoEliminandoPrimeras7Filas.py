@@ -515,8 +515,8 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         
         # Convertir TODAS las columnas a string para comparación uniforme
         for col in df_temp_string.columns:
-            # Convertir a string, reemplazando NaN con string vacío y eliminando espacios
-            df_temp_string[col] = df_temp_string[col].astype(str).replace('nan', '').replace('None', '').str.strip()
+            # PRIMERO rellenar NaN/None con string vacío, LUEGO convertir a string y limpiar espacios
+            df_temp_string[col] = df_temp_string[col].fillna('').astype(str).str.strip()
         
         status_placeholder.info("✅ Todas las columnas convertidas a string temporalmente.")
         
