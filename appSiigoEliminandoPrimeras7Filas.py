@@ -480,7 +480,11 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
     """
     Agrega datos a la primera hoja de un archivo Excel en SharePoint,
     preservando fórmulas, formatos y otras hojas.
-    INCLUYE: Normalización de tipos de datos y detección de duplicados mejorada.
+    
+    INCLUYE:
+    - Normalización de tipos de datos (códigos como texto, valores como números)
+    - Fechas mantenidas en su formato original (sin conversión a datetime)
+    - Detección de duplicados mejorada basada en columnas clave
     """
     status_placeholder.info(f"🔄 Iniciando actualización de: '{ruta_archivo.split('/')[-1]}'")
 
@@ -520,75 +524,83 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         status_placeholder.info("3/5 - Combinando datos...")
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
 
-        # --- NORMALIZACIÓN DE TIPOS DE DATOS (CLAVE PARA EVITAR DUPLICADOS) ---
+        # --- NORMALIZACIÓN DE TIPOS DE DATOS ---
         status_placeholder.info("3.1/5 - Normalizando tipos de datos para comparación...")
         
-        # Lista de columnas numéricas que deben ser números
+        # COLUMNAS QUE SON CÓDIGOS/IDENTIFICADORES/FECHAS (deben ser TEXTO)
+        # Aunque contengan solo números, son identificadores, no valores matemáticos
+        columnas_codigo = [
+            'Línea',                    # Código de línea de producto
+            'Sublínea',                 # Código de sublínea
+            'Vendedor',                 # Identificación del vendedor
+            'Identificación',           # NIT del cliente
+            'Código',                   # Código del producto
+            'Numero comprobante',       # Número de factura calculado (FLE/FSE)
+            'Número comprobante',       # Número de comprobante original
+            'Clasificación Producto',
+            'Tipo Bien',                # P o S
+            'Nombre',
+            'Nombre tercero',
+            'Observaciones',
+            'Fecha elaboración',        # FECHA mantenida como texto original
+            'Descripción Línea',
+            'Descripción Sublínea',
+            'Consecutivo',
+            'Factura proveedor',
+            # Columnas relacionadas
+            'REL_Número comprobante',
+            'REL_Consecutivo',
+            'REL_Nombre tercero',
+            'REL_Factura proveedor',
+            'REL_Identificación'
+        ]
+        
+        # COLUMNAS NUMÉRICAS (solo las que se usan para cálculos matemáticos)
         columnas_numericas = [
-            'Cantidad', 
-            'Valor unitario', 
-            'Total', 
-            'Tasa de cambio', 
-            'Valor Total ME', 
-            'Identificación',
-            # Columnas relacionadas (si existen)
+            'Cantidad',                 # Cantidad vendida
+            'Valor unitario',           # Precio unitario
+            'Total',                    # Total de la venta
+            'Tasa de cambio',           # TRM
+            'Valor Total ME',           # Valor en moneda extranjera
+            # Columnas relacionadas
             'REL_Cantidad',
             'REL_Valor unitario',
             'REL_Total',
             'REL_Tasa de cambio',
-            'REL_Valor Total ME',
-            'REL_Identificación'
+            'REL_Valor Total ME'
         ]
         
-        # Lista de columnas de texto que deben ser strings
-        columnas_texto = [
-            'Tipo Bien', 
-            'Código', 
-            'Numero comprobante', 
-            'Número comprobante',
-            'Clasificación Producto', 
-            'Línea', 
-            'Sublínea', 
-            'Nombre', 
-            'Nombre tercero',
-            'Vendedor',
-            'Observaciones',
-            # Columnas relacionadas
-            'REL_Número comprobante',
-            'REL_Nombre tercero',
-            'REL_Factura proveedor'
-        ]
-        
-        # Convertir columnas numéricas
-        for col in columnas_numericas:
+        # 1. Convertir columnas de CÓDIGOS/IDENTIFICADORES/FECHAS a TEXTO
+        status_placeholder.info("   → Convirtiendo códigos, identificadores y fechas a texto...")
+        for col in columnas_codigo:
             if col in df_combinado.columns:
                 try:
-                    # Convertir a string, limpiar comas y espacios, luego a numérico
-                    df_combinado[col] = pd.to_numeric(
-                        df_combinado[col].astype(str).str.replace(',', '').str.strip(), 
-                        errors='coerce'
+                    # Convertir a string y limpiar
+                    df_combinado[col] = (
+                        df_combinado[col]
+                        .fillna('')                              # NaN → string vacío
+                        .astype(str)                             # Todo a string
+                        .str.replace('.0', '', regex=False)      # Quitar .0 de floats (5.0 → 5)
+                        .str.strip()                             # Eliminar espacios
                     )
                 except Exception as e:
                     status_placeholder.warning(f"⚠️ No se pudo convertir columna '{col}': {e}")
         
-        # Convertir columnas de texto
-        for col in columnas_texto:
+        # 2. Convertir columnas NUMÉRICAS a números
+        status_placeholder.info("   → Convirtiendo valores numéricos...")
+        for col in columnas_numericas:
             if col in df_combinado.columns:
                 try:
-                    # Asegurar que sean strings, limpiar espacios y convertir NaN a string vacío
-                    df_combinado[col] = df_combinado[col].fillna('').astype(str).str.strip()
+                    # Limpiar comas y convertir a numérico
+                    df_combinado[col] = pd.to_numeric(
+                        df_combinado[col]
+                        .astype(str)
+                        .str.replace(',', '', regex=False)       # Quitar comas de miles
+                        .str.strip(),                            # Eliminar espacios
+                        errors='coerce'                          # Valores inválidos → NaN
+                    ).fillna(0)                                  # NaN → 0
                 except Exception as e:
                     status_placeholder.warning(f"⚠️ No se pudo convertir columna '{col}': {e}")
-        
-        # Convertir fechas a formato uniforme
-        if 'Fecha elaboración' in df_combinado.columns:
-            try:
-                df_combinado['Fecha elaboración'] = pd.to_datetime(
-                    df_combinado['Fecha elaboración'], 
-                    errors='coerce'
-                )
-            except Exception as e:
-                status_placeholder.warning(f"⚠️ No se pudo convertir 'Fecha elaboración': {e}")
         
         status_placeholder.success("✅ Tipos de datos normalizados correctamente")
 
@@ -600,17 +612,20 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         filas_antes = len(df_combinado)
         
         # Definir las columnas que identifican un registro único de venta
-        # Estas son las columnas que realmente importan para saber si es la misma venta
+        # Si estas columnas son iguales, es la MISMA venta (duplicado)
         columnas_clave_ventas = [
-            'Tipo Bien',           # S o P
-            'Código',              # Código del producto
+            'Tipo Bien',           # P (Producto) o S (Servicio)
+            'Código',              # Código del producto/servicio
             'Línea',
             'Sublínea',
+            'Nombre',
             'Numero comprobante',  # FLE-XXX o FSE-XXX (el calculado)
             'Fecha elaboración',   # Fecha de la venta
             'Identificación',      # NIT del cliente
             'Cantidad',            # Cantidad vendida
-            'Valor unitario'       # Precio unitario
+            'Valor unitario' ,      # Precio unitario
+            'Valor Total ME',
+            'Observaciones'
         ]
         
         # Filtrar solo las columnas que realmente existen en el DataFrame
@@ -618,10 +633,10 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         
         if len(columnas_existentes) >= 3:  # Necesitamos al menos 3 columnas para validar
             # Eliminar duplicados basándose SOLO en las columnas clave
-            # Esto ignora las columnas REL_* que pueden variar
+            # Las columnas REL_* y Observaciones NO se consideran para detectar duplicados
             df_sin_duplicados = df_combinado.drop_duplicates(
-                subset=columnas_existentes, 
-                keep='first'  # Mantener la primera aparición
+                subset=columnas_existentes,    # Solo compara estas columnas
+                keep='first'                   # Mantener la primera aparición, eliminar las demás
             )
             
             filas_despues = len(df_sin_duplicados)
@@ -640,9 +655,14 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
             # Si no hay suficientes columnas clave, usar método básico
             status_placeholder.warning(
                 f"⚠️ Solo se encontraron {len(columnas_existentes)} columnas clave. "
-                "Se usará validación básica."
+                "Se requieren al menos 3. Se usará validación básica."
             )
             df_sin_duplicados = df_combinado.drop_duplicates(keep='first')
+            filas_antes = len(df_combinado)
+            filas_despues = len(df_sin_duplicados)
+            duplicados_encontrados = filas_antes - filas_despues
+            if duplicados_encontrados > 0:
+                status_placeholder.warning(f"⚠️ Se omitieron {duplicados_encontrados} filas completamente duplicadas.")
         
         # =====================================================================
         # PASO 5: Limpiar columnas "Unnamed"
@@ -689,7 +709,7 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
     except Exception as e:
         status_placeholder.error(f"❌ Error al actualizar el archivo: {e}")
         import traceback
-        status_placeholder.error(f"Detalles: {traceback.format_exc()}")
+        status_placeholder.error(f"Detalles del error: {traceback.format_exc()}")
         return False
 
 def listar_archivos_en_carpeta(headers, site_id, ruta_carpeta):
