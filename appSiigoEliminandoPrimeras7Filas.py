@@ -581,10 +581,19 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         
         # Convertir TODAS las columnas a string para comparación uniforme
         for col in df_temp_string.columns:
-            # PRIMERO rellenar NaN/None con string vacío, LUEGO convertir a string y limpiar espacios
-            df_temp_string[col] = df_temp_string[col].fillna('').astype(str).str.strip()
+            # 1. Rellenar NaN/None con string vacío
+            # 2. Convertir a string
+            # 3. Eliminar el .0 al final de números flotantes (ej: "2.0" → "2")
+            # 4. Limpiar espacios
+            df_temp_string[col] = (
+                df_temp_string[col]
+                .fillna('')
+                .astype(str)
+                .str.replace(r'\.0+$', '', regex=True)
+                .str.strip()
+            )
         
-        status_placeholder.info("✅ Todas las columnas convertidas a string temporalmente.")
+        status_placeholder.info("✅ Todas las columnas convertidas a string temporalmente (eliminando .0 de flotantes).")
         
         # IDENTIFICAR duplicados usando la versión temporal en string
         # Esto compara TODAS las columnas de cada registro
@@ -655,7 +664,8 @@ def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_d
         import traceback
         status_placeholder.error(f"Detalles del error: {traceback.format_exc()}")
         return False
-
+    
+    
 def listar_archivos_en_carpeta(headers, site_id, ruta_carpeta):
     """
     Lista todos los archivos en una carpeta para debug
