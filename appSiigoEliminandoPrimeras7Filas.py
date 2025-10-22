@@ -477,292 +477,171 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
         return None
 
 def agregar_datos_a_excel_sharepoint(headers, site_id, ruta_archivo, df_nuevos_datos, status_placeholder):
+
     """
+
     Agrega datos a la primera hoja de un archivo Excel en SharePoint,
-    preservando fórmulas, formatos y otras hojas, y eliminando duplicados
-    mediante comparación temporal de strings sin modificar los tipos de datos originales.
+
+    preservando fórmulas, formatos y otras hojas.
+
     """
+
+    #status_placeholder.info(f"🔄 Iniciando actualización avanzada de: '{ruta_archivo.split('/')[-1]}'")
+
+
+
     try:
+
         # PASO 1: Descargar el archivo existente con validaciones
+
+        #status_placeholder.info("1/4 - Descargando y validando archivo...")
+
         contenido_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo)
+
         if contenido_bytes is None:
+
+            #status_placeholder.error("❌ Falla en la descarga o validación del archivo.")
+
             return False
+
+
 
         contenido_en_memoria = io.BytesIO(contenido_bytes)
 
+
+
         # PASO 2: Cargar el libro de trabajo completo con openpyxl
+
+        #status_placeholder.info("2/4 - Cargando estructura del archivo (formatos, hojas)...")
+
         libro = openpyxl.load_workbook(contenido_en_memoria)
+
         
+
+        # Asumimos que los datos se agregan a la primera hoja.
+
+        # Puedes cambiar esto por un nombre fijo si es necesario, ej: nombre_hoja_destino = "Ventas"
+
         nombre_hoja_destino = libro.sheetnames[0]
+
         hoja = libro[nombre_hoja_destino]
+
         
-        # Leer los datos de esa hoja en un DataFrame
+
+        # Leer los datos de esa hoja en un DataFrame para facilitar la manipulación
+
         df_existente = pd.read_excel(io.BytesIO(contenido_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
+
         df_existente.reset_index(drop=True, inplace=True)
 
-        # ====== DIAGNÓSTICO: COMPARAR TIPOS DE DATOS ======
-        status_placeholder.info("🔍 DIAGNÓSTICO: Comparando tipos de datos...")
-        
-        st.write("### 📊 TIPOS DE DATOS - ARCHIVO EXISTENTE (Fila 2 / Índice 0)")
-        if len(df_existente) > 0:
-            st.write("**Tipos de datos por columna:**")
-            tipos_existente = {}
-            for col in df_existente.columns:
-                valor = df_existente.iloc[0][col]
-                tipo = type(valor).__name__
-                tipos_existente[col] = f"{tipo} | Valor: {valor}"
-            
-            # Mostrar en formato tabla
-            st.dataframe(pd.DataFrame({
-                'Columna': list(tipos_existente.keys()),
-                'Tipo y Valor': list(tipos_existente.values())
-            }))
-        else:
-            st.warning("⚠️ El archivo existente no tiene datos")
-        
-        st.write("### 📊 TIPOS DE DATOS - DATOS NUEVOS (Primera fila nueva / Índice 0)")
-        if len(df_nuevos_datos) > 0:
-            st.write("**Tipos de datos por columna:**")
-            tipos_nuevos = {}
-            for col in df_nuevos_datos.columns:
-                valor = df_nuevos_datos.iloc[0][col]
-                tipo = type(valor).__name__
-                tipos_nuevos[col] = f"{tipo} | Valor: {valor}"
-            
-            # Mostrar en formato tabla
-            st.dataframe(pd.DataFrame({
-                'Columna': list(tipos_nuevos.keys()),
-                'Tipo y Valor': list(tipos_nuevos.values())
-            }))
-        else:
-            st.warning("⚠️ No hay datos nuevos para agregar")
-        
-        st.write("### 🔍 COMPARACIÓN DE DIFERENCIAS")
-        # Comparar columnas comunes
-        columnas_comunes = set(df_existente.columns) & set(df_nuevos_datos.columns)
-        diferencias_tipo = []
-        
-        for col in columnas_comunes:
-            if len(df_existente) > 0 and len(df_nuevos_datos) > 0:
-                tipo_existente = type(df_existente.iloc[0][col]).__name__
-                tipo_nuevo = type(df_nuevos_datos.iloc[0][col]).__name__
-                
-                if tipo_existente != tipo_nuevo:
-                    valor_existente = df_existente.iloc[0][col]
-                    valor_nuevo = df_nuevos_datos.iloc[0][col]
-                    diferencias_tipo.append({
-                        'Columna': col,
-                        'Tipo Existente': tipo_existente,
-                        'Valor Existente': valor_existente,
-                        'Tipo Nuevo': tipo_nuevo,
-                        'Valor Nuevo': valor_nuevo
-                    })
-        
-        if diferencias_tipo:
-            st.error("❌ COLUMNAS CON TIPOS DE DATOS DIFERENTES:")
-            st.dataframe(pd.DataFrame(diferencias_tipo))
-        else:
-            st.success("✅ Todos los tipos de datos coinciden en columnas comunes")
-        
-        # ====== FIN DIAGNÓSTICO ======
 
-        # PASO 3: Combinar datos y eliminar duplicados
-        status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
+
+        # PASO 3: Combinar los datos y limpiar columnas "Unnamed"
+
+        #status_placeholder.info("3/4 - Combinando datos nuevos y existentes...")
+
         df_combinado = pd.concat([df_existente, df_nuevos_datos], ignore_index=True)
-        
-        # ====== DETECCIÓN DE DUPLICADOS CON COMPARACIÓN TEMPORAL STRING ======
-        filas_antes = len(df_combinado)
-        status_placeholder.info(f"📊 Total de filas antes de verificar duplicados: {filas_antes}")
-        
-        # CREAR COPIA TEMPORAL DE TODO EL DATAFRAME PARA COMPARACIÓN
-        df_temp_string = df_combinado.copy()
-        
-        status_placeholder.info(f"🔍 Convirtiendo {len(df_temp_string.columns)} columnas a string para comparación...")
-        
-        # Convertir TODAS las columnas a string para comparación uniforme
-        for col in df_temp_string.columns:
-            # 1. Rellenar NaN/None con string vacío
-            # 2. Si es numérico, redondear a 2 decimales para evitar diferencias de precisión
-            # 3. Convertir a string
-            # 4. Eliminar el .0 al final de números flotantes
-            # 5. Reemplazar "None" con ""
-            # 6. Limpiar espacios
-            
-            # Intentar redondear si es numérico
-            try:
-                # Si la columna es numérica, redondear a 2 decimales
-                if df_temp_string[col].dtype in ['float64', 'float32', 'int64', 'int32']:
-                    df_temp_string[col] = df_temp_string[col].round(2)
-            except:
-                pass  # Si no es numérico, continuar
-            
-            df_temp_string[col] = (
-                df_temp_string[col]
-                .fillna('')
-                .astype(str)
-                .str.replace(r'\.0+$', '', regex=True)  # "2.0" → "2"
-                .str.replace('None', '', regex=False)    # "None" → ""
-                .str.strip()
-            )
-        
-        status_placeholder.info("✅ Todas las columnas convertidas a string (redondeadas y normalizadas).")
-        
-        # IDENTIFICAR duplicados usando la versión temporal en string
-        # Esto compara TODAS las columnas de cada registro
-        mascara_duplicados = df_temp_string.duplicated(keep='first')
-        
-        # Contar duplicados encontrados
-        duplicados_encontrados = mascara_duplicados.sum()
-        
-        if duplicados_encontrados > 0:
-            status_placeholder.warning(
-                f"⚠️ Se encontraron {duplicados_encontrados} registros duplicados que serán omitidos."
-            )
-            
-            # Opcional: Mostrar algunos ejemplos de duplicados para debug
-            indices_duplicados = df_combinado[mascara_duplicados].index.tolist()[:3]
-            if indices_duplicados:
-                status_placeholder.info(f"📋 Ejemplos de índices de filas duplicadas: {indices_duplicados}")
-        else:
-            status_placeholder.success("✅ No se encontraron registros duplicados.")
-        
-        # ====== INVESTIGAR REGISTROS NO DETECTADOS ======
-        if len(df_nuevos_datos) > 0:
-            st.write("### 🔍 INVESTIGANDO REGISTROS NO DETECTADOS COMO DUPLICADOS")
-            
-            # Los nuevos datos están al final del df_combinado
-            inicio_nuevos = len(df_existente)
-            
-            # Ver cuántos de los nuevos NO fueron marcados como duplicados
-            registros_nuevos_no_duplicados = sum(~mascara_duplicados[inicio_nuevos:])
-            
-            st.warning(f"⚠️ De {len(df_nuevos_datos)} registros nuevos, {registros_nuevos_no_duplicados} NO fueron detectados como duplicados")
-            
-            if registros_nuevos_no_duplicados > 0 and registros_nuevos_no_duplicados < len(df_nuevos_datos):
-                st.write("Esto significa que ALGUNOS se detectaron y OTROS NO. Investigando diferencias...")
-                
-                # Obtener los índices de registros nuevos que NO fueron detectados como duplicados
-                indices_nuevos_no_detectados = []
-                for i in range(inicio_nuevos, len(df_combinado)):
-                    if not mascara_duplicados[i]:
-                        indices_nuevos_no_detectados.append(i)
-                
-                if indices_nuevos_no_detectados:
-                    # Tomar el primer registro nuevo que NO se detectó como duplicado
-                    indice_problema = indices_nuevos_no_detectados[0]
-                    
-                    st.write(f"#### Analizando registro en índice {indice_problema} (NO detectado como duplicado)")
-                    
-                    # Buscar registros existentes que tengan el mismo "Código" (columna clave)
-                    if 'Código' in df_temp_string.columns:
-                        codigo_buscar = df_temp_string.iloc[indice_problema]['Código']
-                        
-                        st.write(f"Buscando en registros existentes con Código: **{codigo_buscar}**")
-                        
-                        # Buscar en los registros existentes (antes de inicio_nuevos)
-                        posible_gemelo = None
-                        for i in range(inicio_nuevos):
-                            if df_temp_string.iloc[i]['Código'] == codigo_buscar:
-                                posible_gemelo = i
-                                break
-                        
-                        if posible_gemelo is not None:
-                            st.success(f"✅ Encontrado posible gemelo en índice {posible_gemelo}")
-                            
-                            # Comparar TODAS las columnas entre estos dos registros
-                            diferencias_detalladas = []
-                            for col in df_temp_string.columns:
-                                val_existente = df_temp_string.iloc[posible_gemelo][col]
-                                val_nuevo = df_temp_string.iloc[indice_problema][col]
-                                
-                                if val_existente != val_nuevo:
-                                    # Mostrar también el tipo y longitud para debugging
-                                    diferencias_detalladas.append({
-                                        'Columna': col,
-                                        'Valor Existente (ya string)': f'"{val_existente}" (len={len(val_existente)})',
-                                        'Valor Nuevo (ya string)': f'"{val_nuevo}" (len={len(val_nuevo)})',
-                                        'Son iguales?': 'NO ❌'
-                                    })
-                            
-                            if diferencias_detalladas:
-                                st.error(f"❌ Encontradas {len(diferencias_detalladas)} columnas diferentes:")
-                                st.dataframe(pd.DataFrame(diferencias_detalladas))
-                                
-                                # Mostrar también los valores ORIGINALES (antes de convertir a string)
-                                st.write("#### Valores ORIGINALES (con tipos de datos originales):")
-                                diferencias_originales = []
-                                for col in df_combinado.columns:
-                                    val_orig_existente = df_combinado.iloc[posible_gemelo][col]
-                                    val_orig_nuevo = df_combinado.iloc[indice_problema][col]
-                                    tipo_existente = type(val_orig_existente).__name__
-                                    tipo_nuevo = type(val_orig_nuevo).__name__
-                                    
-                                    if str(val_orig_existente) != str(val_orig_nuevo):
-                                        diferencias_originales.append({
-                                            'Columna': col,
-                                            'Valor Existente': val_orig_existente,
-                                            'Tipo Existente': tipo_existente,
-                                            'Valor Nuevo': val_orig_nuevo,
-                                            'Tipo Nuevo': tipo_nuevo
-                                        })
-                                
-                                if diferencias_originales:
-                                    st.dataframe(pd.DataFrame(diferencias_originales))
-                            else:
-                                st.success("✅ Todos los valores son iguales (esto NO debería pasar)")
-                        else:
-                            st.warning(f"⚠️ No se encontró un registro existente con Código {codigo_buscar}")
-        # ====== FIN INVESTIGACIÓN ======
-        
-        # FILTRAR el DataFrame ORIGINAL (con tipos de datos originales intactos)
-        # usando la máscara de duplicados identificada
-        df_sin_duplicados = df_combinado[~mascara_duplicados].copy()
-        
-        filas_despues = len(df_sin_duplicados)
-        status_placeholder.success(f"✅ Filas finales después de eliminar duplicados: {filas_despues}")
-        
-        # ====== FIN DETECCIÓN DE DUPLICADOS ======
-        
-        # Limpiar columnas "Unnamed"
-        cols_a_eliminar = [col for col in df_sin_duplicados.columns if 'Unnamed:' in str(col)]
-        if cols_a_eliminar:
-            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True)
-            status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
 
-        # PASO 4: Escribir los datos actualizados de vuelta a la hoja
-        status_placeholder.info("4/4 - Escribiendo datos y subiendo el archivo final...")
         
-        # Usar el DataFrame limpio (sin duplicados, pero con tipos originales)
-        df_combinado = df_sin_duplicados
+
+        # --- LÍNEAS NUEVAS PARA ELIMINAR DUPLICADOS ---
+
+        filas_antes = len(df_combinado)
+
+        # Elimina filas que son completamente idénticas, manteniendo la primera aparición
+
+        df_sin_duplicados = df_combinado.drop_duplicates(keep='first')
+
+        filas_despues = len(df_sin_duplicados)
+
+        
+
+        duplicados_encontrados = filas_antes - filas_despues
+
+        if duplicados_encontrados > 0:
+
+            status_placeholder.warning(f"⚠️ Se encontraron y omitieron {duplicados_encontrados} registros duplicados.")
+
+        else:
+
+            status_placeholder.info("✅ No se encontraron registros duplicados.")
+
+        
+
+        # --- FIN DE LÍNEAS NUEVAS ---
+
+        
+
+        cols_a_eliminar = [col for col in df_sin_duplicados.columns if 'Unnamed:' in str(col)]
+
+        if cols_a_eliminar:
+
+            df_sin_duplicados.drop(columns=cols_a_eliminar, inplace=True)
+
+            #status_placeholder.info("🧹 Columnas 'Unnamed:' eliminadas.")
+
+
+
+        # PASO 4: Escribir los datos actualizados de vuelta a la hoja, preservando el resto
+
+        #status_placeholder.info("4/4 - Escribiendo datos y subiendo el archivo final...")
+
+        
+
+        # Asegúrate de usar el DataFrame limpio para el resto del proceso
+
+        df_combinado = df_sin_duplicados # <-- ¡Importante!
+
         hoja = libro[nombre_hoja_destino]
-        
-        # Borrar datos antiguos de la hoja (excepto encabezados)
+
+        # Borrar datos antiguos de la hoja (excepto encabezados) para evitar duplicados
+
         for r in range(hoja.max_row, 1, -1):
+
             hoja.delete_rows(r)
+
             
+
         from openpyxl.utils.dataframe import dataframe_to_rows    
-        
+
         # Escribir el contenido del DataFrame combinado en la hoja
+
         for r_idx, row in enumerate(dataframe_to_rows(df_sin_duplicados, index=False, header=False), 2):
+
             for c_idx, value in enumerate(row, 1):
+
                 hoja.cell(row=r_idx, column=c_idx, value=value)
+
         
+
         # Guardar el libro modificado en memoria
+
         output = io.BytesIO()
+
         libro.save(output)
+
         
+
         # Subir el archivo final
+
         endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo}:/content"
+
         response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
+
         response_put.raise_for_status()
 
-        status_placeholder.success(f"✅ ¡Archivo '{ruta_archivo.split('/')[-1]}' actualizado preservando su formato!")
+
+
+        #status_placeholder.success(f"✅ ¡Archivo '{ruta_archivo.split('/')[-1]}' actualizado preservando su formato!")
+
         return True
 
+
+
     except Exception as e:
+
         status_placeholder.error(f"❌ Falló la actualización del archivo. Error: {e}")
-        import traceback
-        status_placeholder.error(f"Detalles del error: {traceback.format_exc()}")
+
         return False
     
     
