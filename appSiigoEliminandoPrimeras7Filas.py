@@ -31,16 +31,17 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
     Actualiza la hoja "Datos" del TRM.xlsx añadiendo nuevas filas sin borrar las existentes,
-    lo que permite a las Tablas de Excel extender las fórmulas automáticamente.
+    evitando duplicados mediante comparación temporal de strings.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización (modo apéndice) de la hoja '{nombre_hoja_destino}'...")
 
     try:
         # PASO 1: Descargar y cargar el libro de trabajo completo
-        status_placeholder.info("1/3 - Descargando archivo TRM...")
+        status_placeholder.info("1/6 - Descargando archivo TRM...")
         contenido_trm_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
-        if contenido_trm_bytes is None: return False
+        if contenido_trm_bytes is None: 
+            return False
 
         libro = openpyxl.load_workbook(io.BytesIO(contenido_trm_bytes))
         if nombre_hoja_destino not in libro.sheetnames:
@@ -49,21 +50,23 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         
         hoja = libro[nombre_hoja_destino]
         
-        #PASO 1.1: Detectar si existe una Tabla de Excel en la hoja
-        status_placeholder.info("2/4 - Detectando Tabla de Excel...")
+        # PASO 1.1: Detectar si existe una Tabla de Excel en la hoja
+        status_placeholder.info("2/6 - Detectando Tabla de Excel...")
         tabla = None
         if hoja.tables:
-            # Tomar la primera tabla encontrada (puedes ajustar esto si hay múltiples tablas)
             nombre_tabla = list(hoja.tables.keys())[0]
             tabla = hoja.tables[nombre_tabla]
             status_placeholder.info(f"✅ Tabla encontrada: '{nombre_tabla}' con rango {tabla.ref}")
         else:
-            status_placeholder.warning("⚠️ No se encontró ninguna Tabla de Excel. Las fórmulas podrían no extenderse automáticamente.")
+            status_placeholder.warning("⚠️ No se encontró ninguna Tabla de Excel.")
         
+        # PASO 1.2: Leer datos existentes en DataFrame
+        status_placeholder.info("3/6 - Leyendo datos existentes para verificar duplicados...")
+        df_existente = pd.read_excel(io.BytesIO(contenido_trm_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
+        df_existente.reset_index(drop=True, inplace=True)
         
-        
-        # PASO 2: Preparar las nuevas filas para ser añadidas
-        status_placeholder.info("3/4 - Preparando nuevas filas para añadir...")
+        # PASO 2: Preparar las nuevas filas como DataFrame
+        status_placeholder.info("4/6 - Preparando nuevas filas para añadir...")
         
         # Calcular el año y mes a usar        
         fecha_actual = datetime.now()
@@ -75,156 +78,181 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         if dia_actual == 1:
             if mes == 1:
                 mes = 12
-                anio -= 1  # Si es enero, retroceder al diciembre del año anterior
+                anio -= 1
             else:
                 mes -= 1
         
-        status_placeholder.info(f"Usando fecha: Año {anio}, Mes {mes}")
+        status_placeholder.info(f"📅 Usando fecha: Año {anio}, Mes {mes}")
         
-        # Obtener el número de encabezados de la hoja de destino
-        num_encabezados = len([cell.value for cell in hoja[1]])
+        # Crear DataFrame con las nuevas filas
+        # Agregar las columnas Año, Mes y País al inicio
+        df_nuevos = df_datos_procesados.copy()
+        df_nuevos.insert(0, 'Año', anio)
+        df_nuevos.insert(1, 'Mes', mes)
+        df_nuevos.insert(2, 'País', 'Colombia')
         
-        lista_nuevas_filas = []
-        # Iterar sobre las filas de los datos procesados
-        for index, fila_procesada in df_datos_procesados.iterrows():
-            # Crear una lista de strings vacíos del tamaño de la fila de destino
-            nueva_fila_lista = [""] * num_encabezados
+        # Asegurarse de que las columnas coincidan con el archivo existente
+        # Si faltan columnas en df_nuevos, agregarlas con valores vacíos
+        for col in df_existente.columns:
+            if col not in df_nuevos.columns:
+                df_nuevos[col] = ''
+        
+        # Ordenar las columnas para que coincidan con el archivo existente
+        df_nuevos = df_nuevos[df_existente.columns]
+        
+        # ====== DETECCIÓN DE DUPLICADOS ======
+        status_placeholder.info("5/6 - Verificando duplicados...")
+        
+        # Combinar datos existentes con nuevos
+        df_combinado = pd.concat([df_existente, df_nuevos], ignore_index=True)
+        filas_antes = len(df_combinado)
+        
+        # Crear copia temporal para comparación
+        df_temp_string = df_combinado.copy()
+        
+        # Convertir TODAS las columnas a string para comparación uniforme
+        for col in df_temp_string.columns:
+            # Intentar redondear si es numérico
+            try:
+                if df_temp_string[col].dtype in ['float64', 'float32', 'int64', 'int32']:
+                    df_temp_string[col] = df_temp_string[col].round(2)
+            except:
+                pass
             
-            # Establecer Año en columna 1 (índice 0)
-            nueva_fila_lista[0] = anio
-            
-            # Establecer Mes en columna 2 (índice 1)
-            nueva_fila_lista[1] = mes
-            
-            # Establecer "Colombia" en la columna 3 (índice 2)
-            nueva_fila_lista[2] = "Colombia"
-            
-            # --- CORRECCIÓN Y SIMPLIFICACIÓN AQUÍ ---
-            # Copiar los valores de la fila procesada a la nueva lista, a partir de la 4ta posición (índice 3)
-            for i, valor in enumerate(fila_procesada.values):
-                if (i + 4) < num_encabezados:
-                    nueva_fila_lista[i + 4] = valor
-            
-            lista_nuevas_filas.append(nueva_fila_lista)
-
-        # PASO 3: Añadir las nuevas filas y subir el archivo
-        status_placeholder.info(f"4/4 - Añadiendo {len(lista_nuevas_filas)} nuevas filas y subiendo...")
-        for fila in lista_nuevas_filas:
-            hoja.append(fila) # 'append' añade la fila al final, sin tocar las existentes
+            df_temp_string[col] = (
+                df_temp_string[col]
+                .fillna('')
+                .astype(str)
+                .str.replace(r'\.0+$', '', regex=True)  # "2.0" → "2"
+                .str.replace('None', '', regex=False)    # "None" → ""
+                .str.strip()
+            )
+        
+        # Identificar duplicados
+        mascara_duplicados = df_temp_string.duplicated(keep='first')
+        duplicados_encontrados = mascara_duplicados.sum()
+        
+        if duplicados_encontrados > 0:
+            status_placeholder.warning(
+                f"⚠️ Se encontraron {duplicados_encontrados} registros duplicados que serán omitidos."
+            )
+        else:
+            status_placeholder.success("✅ No se encontraron registros duplicados.")
+        
+        # Filtrar solo los NO duplicados
+        df_sin_duplicados = df_combinado[~mascara_duplicados].copy()
+        
+        # Calcular cuántas filas nuevas realmente se agregarán
+        filas_nuevas_reales = len(df_sin_duplicados) - len(df_existente)
+        
+        if filas_nuevas_reales == 0:
+            status_placeholder.warning("⚠️ No hay registros nuevos para agregar (todos son duplicados).")
+            return True  # No es un error, simplemente no hay nada que agregar
+        
+        status_placeholder.info(f"✅ Se agregarán {filas_nuevas_reales} registros nuevos (de {len(df_nuevos)} intentados).")
+        
+        # ====== FIN DETECCIÓN DE DUPLICADOS ======
+        
+        # PASO 3: Obtener solo las filas que realmente son nuevas (no duplicadas)
+        # Las nuevas filas están al final del df_combinado después de filtrar duplicados
+        inicio_nuevas = len(df_existente)
+        df_nuevas_a_agregar = df_sin_duplicados.iloc[inicio_nuevas:].copy()
+        
+        if len(df_nuevas_a_agregar) == 0:
+            status_placeholder.warning("⚠️ No hay registros nuevos para agregar después de filtrar duplicados.")
+            return True
+        
+        # PASO 4: Añadir las nuevas filas al archivo Excel
+        status_placeholder.info(f"6/6 - Añadiendo {len(df_nuevas_a_agregar)} nuevas filas al archivo...")
+        
+        # Convertir DataFrame a lista de listas para agregar a openpyxl
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        
+        for r_idx, row in enumerate(dataframe_to_rows(df_nuevas_a_agregar, index=False, header=False)):
+            hoja.append(row)
         
         # Extender el rango de la Tabla si existe
         if tabla:            
-            # Calcular el nuevo rango de la tabla
-            # Formato: "A1:Z100" donde necesitamos mantener las columnas pero extender las filas
             rango_actual = tabla.ref
-            inicio_rango = rango_actual.split(':')[0]  # Ej: "A1"
-            columna_final = rango_actual.split(':')[1].rstrip('0123456789')  # Ej: "Z" de "Z100"
-            
+            inicio_rango = rango_actual.split(':')[0]
+            columna_final = rango_actual.split(':')[1].rstrip('0123456789')
             nueva_fila_final = hoja.max_row
             nuevo_rango = f"{inicio_rango}:{columna_final}{nueva_fila_final}"
-            
             tabla.ref = nuevo_rango
             status_placeholder.info(f"✅ Rango de la Tabla extendido de {rango_actual} a {nuevo_rango}")
         
-        status_placeholder.info("Agregando fórmula de columna D (Comercial)...")
-
-        col_comercial_idx = 4  # Columna D
-        col_vendedor_idx = 18  # Columna R donde está "Vendedor"
+        # PASO 5: Agregar fórmulas a las nuevas filas
+        status_placeholder.info("Agregando fórmulas a las nuevas filas...")
         
         # Calcular qué filas son nuevas
-        num_nuevas_filas = len(lista_nuevas_filas)
+        num_nuevas_filas = len(df_nuevas_a_agregar)
         primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
         
         from openpyxl.utils import get_column_letter
-        letra_vendedor = get_column_letter(col_vendedor_idx)  # Esto dará "R"
+        
+        # Fórmula columna D (Comercial)
+        col_comercial_idx = 4
+        col_vendedor_idx = 18
+        letra_vendedor = get_column_letter(col_vendedor_idx)
         
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
-            # Busca el código del vendedor (columna R) en la hoja "vendedor" columnas A:C, devuelve columna 3 (Marca)
             celda_comercial.value = f'=IFERROR(VLOOKUP(R{r_idx},vendedor!$B:$C,2,FALSE),"")'
-        
-        # Agregar la fórmula a todas las nuevas filas
-        #for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
-            #celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
-            # Nota: Excel acepta las funciones en inglés independientemente del idioma
-            #celda_comercial.value = '=IFERROR(VLOOKUP([@Vendedor],codigos_vendedor,2,0),"")'
         
         status_placeholder.info(f"✅ Fórmula agregada a columna D en {num_nuevas_filas} nuevas filas")
         
-        #NUEVO: Agregar fórmulas BUSCARV para las descripciones
-        #status_placeholder.info("Agregando fórmulas de descripción...")
+        # Fórmulas columnas AJ y AK
+        col_aj_idx = 36
+        col_ak_idx = 37
+        col_compra_usd_idx = 34
+        col_vr_total_me_idx = 23
         
-        #from openpyxl.utils import get_column_letter
-        # Posiciones fijas de las columnas
-        #col_linea_idx = 7  # Columna F donde está "Línea"
-        #col_desc_linea_idx = 8  # Columna H donde va "Descripción Línea"
-        #col_sublinea_idx = 9  # Columna I donde está "Sublínea"
-        #col_desc_sublinea_idx = 10  # Columna J donde va "Descripción Sublínea"
-
-        # Convertir índices a letras
-        #letra_col_linea = get_column_letter(col_linea_idx)
-        #letra_col_sublinea = get_column_letter(col_sublinea_idx)
+        letra_compra_usd = get_column_letter(col_compra_usd_idx)
+        letra_vr_total_me = get_column_letter(col_vr_total_me_idx)
         
-        # Agregar fórmulas para Descripción Línea (columna H)
-        #for r_idx in range(2, hoja.max_row + 1):
-            #celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
-            
-            # Fórmula BUSCARV que busca en la hoja "lineas"
-            #formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_linea}{r_idx}),lineas!$B:$C,2,FALSE),"")'
-            
-            #celda_desc_linea.value = formula
-        
-        #status_placeholder.info(f"✅ Fórmulas agregadas a columna H 'Descripción Línea' ({hoja.max_row - 1} filas)")
-        
-        # Agregar fórmulas para Descripción Sublínea (columna J)
-        #for r_idx in range(2, hoja.max_row + 1):
-            #celda_desc_sublinea = hoja.cell(row=r_idx, column=col_desc_sublinea_idx)
-            
-            # Ajusta el rango según dónde estén las sublíneas en la hoja "lineas"
-            # Si están en las mismas columnas A:B, usa esto. Si no, ajusta el rango
-            #formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_sublinea}{r_idx}),Sublineas!$B:$D,3,FALSE),"")'
-            #celda_desc_sublinea.value = formula
-        
-        #status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
-        #---------------------------------------------------------------------------------------------------------
-        status_placeholder.info("Agregando fórmulas de columnas AJ y AK...")
-
-        col_aj_idx = 36  # Columna AJ
-        col_ak_idx = 37  # Columna AK
-        col_compra_usd_idx = 34  # Columna AH (Compra en USD)
-        col_vr_total_me_idx = 23  # Columna W (Vr.Total ME)
-        
-        letra_compra_usd = get_column_letter(col_compra_usd_idx)  # Esto dará "AH"
-        letra_vr_total_me = get_column_letter(col_vr_total_me_idx)  # Esto dará "W"
-        # Calcular qué filas son nuevas
-        num_nuevas_filas = len(lista_nuevas_filas)
-        primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
-        # Agregar fórmulas a todas las nuevas filas
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
-            # Columna AJ: =IFERROR(1-(AH/W),0)
             celda_aj = hoja.cell(row=r_idx, column=col_aj_idx)
             celda_aj.value = f'=IFERROR(1-(AH{r_idx}/W{r_idx}),0)'
             
-            # Columna AK: =W-AH
             celda_ak = hoja.cell(row=r_idx, column=col_ak_idx)
             celda_ak.value = f'=W{r_idx}-AH{r_idx}'
         
         status_placeholder.info(f"✅ Fórmulas agregadas a columnas AJ y AK en {num_nuevas_filas} nuevas filas")
         
-        # Guardar y subir
+        # PASO 6: Guardar y subir con reintentos
         output = io.BytesIO()
         libro.save(output)
         
         endpoint_put = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive/root:/{ruta_archivo_trm}:/content"
-        response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
-        response_put.raise_for_status()
+        
+        # Implementar reintentos para manejar archivo bloqueado
+        max_intentos = 3
+        for intento in range(max_intentos):
+            try:
+                response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
+                response_put.raise_for_status()
+                break  # Si tiene éxito, salir del loop
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 423:  # Archivo bloqueado
+                    if intento < max_intentos - 1:
+                        status_placeholder.warning(f"⚠️ Archivo bloqueado, reintentando en 5 segundos... (Intento {intento + 1}/{max_intentos})")
+                        import time
+                        time.sleep(5)
+                    else:
+                        status_placeholder.error("❌ El archivo está bloqueado. Por favor cierra el archivo en Excel y vuelve a intentar.")
+                        raise
+                else:
+                    raise
 
-        status_placeholder.success("✅ ¡Archivo TRM actualizado! Las fórmulas deberían haberse extendido automáticamente.")
+        status_placeholder.success("✅ ¡Archivo TRM actualizado sin duplicados!")
         return True
 
     except Exception as e:
         status_placeholder.error(f"❌ Falló la actualización del archivo TRM. Error: {e}")
+        import traceback
+        status_placeholder.error(f"Detalles del error: {traceback.format_exc()}")
         return False
+
 
 
 def validar_respuesta_sharepoint(response, nombre_archivo):
