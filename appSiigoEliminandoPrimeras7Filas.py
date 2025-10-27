@@ -30,188 +30,209 @@ SCOPES = ["https://graph.microsoft.com/.default"]
 
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
-    Actualiza la hoja "Datos" del TRM.xlsx añadiendo nuevas filas sin borrar las existentes,
-    lo que permite a las Tablas de Excel extender las fórmulas automáticamente.
+    Actualiza la hoja "Datos" del TRM.xlsx añadiendo solo nuevas filas ÚNICAS
+    (evitando duplicados) y extendiendo las Tablas de Excel.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización (modo apéndice) de la hoja '{nombre_hoja_destino}'...")
 
     try:
-        # PASO 1: Descargar y cargar el libro de trabajo completo
-        status_placeholder.info("1/3 - Descargando archivo TRM...")
+        # PASO 1: Descargar el archivo
+        status_placeholder.info("1/7 - Descargando archivo TRM...")
         contenido_trm_bytes = obtener_contenido_archivo_sharepoint(headers, site_id, ruta_archivo_trm)
         if contenido_trm_bytes is None: return False
 
-        libro = openpyxl.load_workbook(io.BytesIO(contenido_trm_bytes))
-        if nombre_hoja_destino not in libro.sheetnames:
+        # ==============================================================================
+        # NUEVO: PASO 2 - LEER DATOS EXISTENTES Y PREPARAR DATOS NUEVOS
+        # ==============================================================================
+        status_placeholder.info("2/7 - Leyendo datos existentes para deduplicación...")
+        
+        # Cargar el libro con Openpyxl solo para obtener los nombres de las columnas
+        # Esto asegura que capturemos los nombres exactos como están en el archivo
+        libro_temp = openpyxl.load_workbook(io.BytesIO(contenido_trm_bytes))
+        if nombre_hoja_destino not in libro_temp.sheetnames:
             status_placeholder.error(f"❌ No se encontró la hoja '{nombre_hoja_destino}'.")
             return False
         
-        hoja = libro[nombre_hoja_destino]
+        hoja_temp = libro_temp[nombre_hoja_destino]
+        columnas_destino = [cell.value for cell in hoja_temp[1] if cell.value is not None]
+        num_encabezados = len(columnas_destino)
+
+        # Leer los datos existentes en un DataFrame
+        df_existente = pd.read_excel(io.BytesIO(contenido_trm_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
+        df_existente.reset_index(drop=True, inplace=True)
+        # Asegurar que las columnas del DF coincidan con las leídas por openpyxl
+        df_existente.columns = columnas_destino[:len(df_existente.columns)]
+
+
+        status_placeholder.info(f"3/7 - Preparando {len(df_datos_procesados)} nuevos registros...")
         
-        #PASO 1.1: Detectar si existe una Tabla de Excel en la hoja
-        status_placeholder.info("2/4 - Detectando Tabla de Excel...")
-        tabla = None
-        if hoja.tables:
-            # Tomar la primera tabla encontrada (puedes ajustar esto si hay múltiples tablas)
-            nombre_tabla = list(hoja.tables.keys())[0]
-            tabla = hoja.tables[nombre_tabla]
-            status_placeholder.info(f"✅ Tabla encontrada: '{nombre_tabla}' con rango {tabla.ref}")
-        else:
-            status_placeholder.warning("⚠️ No se encontró ninguna Tabla de Excel. Las fórmulas podrían no extenderse automáticamente.")
-        
-        
-        
-        # PASO 2: Preparar las nuevas filas para ser añadidas
-        status_placeholder.info("3/4 - Preparando nuevas filas para añadir...")
-        
-        # Calcular el año y mes a usar        
+        # Calcular el año y mes a usar
         fecha_actual = datetime.now()
         dia_actual = fecha_actual.day
         anio = fecha_actual.year
         mes = fecha_actual.month
         
-        # Si es día 1, usar el mes anterior
         if dia_actual == 1:
             if mes == 1:
                 mes = 12
-                anio -= 1  # Si es enero, retroceder al diciembre del año anterior
+                anio -= 1
             else:
                 mes -= 1
         
         status_placeholder.info(f"Usando fecha: Año {anio}, Mes {mes}")
-        
-        # Obtener el número de encabezados de la hoja de destino
-        num_encabezados = len([cell.value for cell in hoja[1]])
-        
-        lista_nuevas_filas = []
-        # Iterar sobre las filas de los datos procesados
-        for index, fila_procesada in df_datos_procesados.iterrows():
-            # Crear una lista de strings vacíos del tamaño de la fila de destino
-            nueva_fila_lista = [""] * num_encabezados
-            
-            # Establecer Año en columna 1 (índice 0)
-            nueva_fila_lista[0] = anio
-            
-            # Establecer Mes en columna 2 (índice 1)
-            nueva_fila_lista[1] = mes
-            
-            # Establecer "Colombia" en la columna 3 (índice 2)
-            nueva_fila_lista[2] = "Colombia"
-            
-            # --- CORRECCIÓN Y SIMPLIFICACIÓN AQUÍ ---
-            # Copiar los valores de la fila procesada a la nueva lista, a partir de la 4ta posición (índice 3)
-            for i, valor in enumerate(fila_procesada.values):
-                if (i + 4) < num_encabezados:
-                    nueva_fila_lista[i + 4] = valor
-            
-            lista_nuevas_filas.append(nueva_fila_lista)
 
-        # PASO 3: Añadir las nuevas filas y subir el archivo
-        status_placeholder.info(f"4/4 - Añadiendo {len(lista_nuevas_filas)} nuevas filas y subiendo...")
-        for fila in lista_nuevas_filas:
-            hoja.append(fila) # 'append' añade la fila al final, sin tocar las existentes
+        # Convertir los datos procesados al formato del archivo TRM (en un DataFrame)
+        nuevas_filas_list_of_dicts = []
+        for index, fila_procesada in df_datos_procesados.iterrows():
+            nueva_fila_dict = {col: "" for col in columnas_destino} # Iniciar con valores vacíos
+            
+            # Mapear los datos fijos
+            if len(columnas_destino) > 0: nueva_fila_dict[columnas_destino[0]] = anio
+            if len(columnas_destino) > 1: nueva_fila_dict[columnas_destino[1]] = mes
+            if len(columnas_destino) > 2: nueva_fila_dict[columnas_destino[2]] = "Colombia"
+            
+            # Mapear los datos del DataFrame procesado
+            for i, valor in enumerate(fila_procesada.values):
+                col_index_destino = i + 4 # Empezar a mapear en la 5ta columna (índice 4)
+                if col_index_destino < num_encabezados:
+                    nueva_fila_dict[columnas_destino[col_index_destino]] = valor
+            
+            nuevas_filas_list_of_dicts.append(nueva_fila_dict)
+
+        if nuevas_filas_list_of_dicts:
+            df_nuevos_mapeados = pd.DataFrame(nuevas_filas_list_of_dicts)
+        else:
+            df_nuevos_mapeados = pd.DataFrame(columns=columnas_destino) # DataFrame vacío
+
+        # ==============================================================================
+        # NUEVO: PASO 3 - LÓGICA DE DEDUPLICACIÓN
+        # ==============================================================================
+        status_placeholder.info(f"4/7 - Ejecutando lógica de deduplicación...")
+        
+        # Añadir un identificador temporal para saber qué filas son nuevas
+        df_existente['__source__'] = 'existente'
+        df_nuevos_mapeados['__source__'] = 'nuevo'
+
+        df_combinado = pd.concat([df_existente, df_nuevos_mapeados], ignore_index=True)
+        
+        # --- Copia de la lógica de deduplicación robusta ---
+        df_temp_string = df_combinado.copy()
+        cols_to_normalize = [col for col in df_temp_string.columns if col != '__source__']
+
+        for col in cols_to_normalize:
+            try:
+                if df_temp_string[col].dtype in ['float64', 'float32', 'int64', 'int32']:
+                    df_temp_string[col] = df_temp_string[col].round(2)
+            except:
+                pass 
+            
+            df_temp_string[col] = (
+                df_temp_string[col]
+                .fillna('')
+                .astype(str)
+                .str.replace(r'\.0+$', '', regex=True) 
+                .str.replace('None', '', regex=False)  
+                .str.strip()
+            )
+        
+        # Identificar duplicados usando la versión temporal en string
+        mascara_duplicados = df_temp_string.duplicated(subset=cols_to_normalize, keep='first')
+        
+        # Contar cuántos de los "nuevos" fueron marcados como duplicados
+        duplicados_encontrados_en_nuevos = mascara_duplicados[df_combinado['__source__'] == 'nuevo'].sum()
+        if duplicados_encontrados_en_nuevos > 0:
+            status_placeholder.warning(f"⚠️ Se encontraron {duplicados_encontrados_en_nuevos} registros nuevos que ya existían y serán omitidos.")
+        else:
+            status_placeholder.info("✅ No se encontraron registros duplicados.")
+
+        # Filtrar el DataFrame combinado (con tipos originales)
+        df_combinado_filtrado = df_combinado[~mascara_duplicados]
+        
+        # Aislar solo las filas "nuevas" que sobrevivieron (que son únicas)
+        df_filas_a_anadir = df_combinado_filtrado[df_combinado_filtrado['__source__'] == 'nuevo']
+        df_filas_a_anadir = df_filas_a_anadir.drop(columns=['__source__'])
+
+        # ==============================================================================
+        # PASO 4: AÑADIR LAS FILAS ÚNICAS Y SUBIR
+        # ==============================================================================
+        
+        if df_filas_a_anadir.empty:
+            status_placeholder.success("✅ No se encontraron registros nuevos para añadir. El archivo TRM ya está actualizado.")
+            return True
+
+        status_placeholder.info(f"5/7 - Añadiendo {len(df_filas_a_anadir)} nuevos registros únicos...")
+
+        # Convertir el DataFrame de filas a añadir en una lista de listas para openpyxl
+        lista_nuevas_filas_final = [list(row) for row in df_filas_a_anadir.itertuples(index=False, name=None)]
+
+        # Cargar el libro de trabajo real para modificarlo
+        libro = openpyxl.load_workbook(io.BytesIO(contenido_trm_bytes))
+        hoja = libro[nombre_hoja_destino]
+        
+        # Detectar la Tabla de Excel
+        tabla = None
+        if hoja.tables:
+            nombre_tabla = list(hoja.tables.keys())[0]
+            tabla = hoja.tables[nombre_tabla]
+            status_placeholder.info(f"✅ Tabla encontrada: '{nombre_tabla}' con rango {tabla.ref}")
+        else:
+            status_placeholder.warning("⚠️ No se encontró ninguna Tabla de Excel. Las fórmulas podrían no extenderse automáticamente.")
+
+        # Añadir las nuevas filas únicas
+        for fila in lista_nuevas_filas_final:
+            hoja.append(fila)
         
         # Extender el rango de la Tabla si existe
-        if tabla:            
-            # Calcular el nuevo rango de la tabla
-            # Formato: "A1:Z100" donde necesitamos mantener las columnas pero extender las filas
+        if tabla:
             rango_actual = tabla.ref
-            inicio_rango = rango_actual.split(':')[0]  # Ej: "A1"
-            columna_final = rango_actual.split(':')[1].rstrip('0123456789')  # Ej: "Z" de "Z100"
+            inicio_rango = rango_actual.split(':')[0]
+            columna_final = rango_actual.split(':')[1].rstrip('0123456789')
             
             nueva_fila_final = hoja.max_row
             nuevo_rango = f"{inicio_rango}:{columna_final}{nueva_fila_final}"
             
             tabla.ref = nuevo_rango
             status_placeholder.info(f"✅ Rango de la Tabla extendido de {rango_actual} a {nuevo_rango}")
-        
-        status_placeholder.info("Agregando fórmula de columna D (Comercial)...")
+
+        # ==============================================================================
+        # PASO 5: INYECTAR FÓRMULAS (Lógica original)
+        # ==============================================================================
+        status_placeholder.info("6/7 - Agregando fórmulas a las nuevas filas...")
 
         col_comercial_idx = 4  # Columna D
-        col_vendedor_idx = 18  # Columna R donde está "Vendedor"
+        col_vendedor_idx = 18  # Columna R
         
         # Calcular qué filas son nuevas
-        num_nuevas_filas = len(lista_nuevas_filas)
+        num_nuevas_filas = len(lista_nuevas_filas_final)
         primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
         
-        from openpyxl.utils import get_column_letter
-        letra_vendedor = get_column_letter(col_vendedor_idx)  # Esto dará "R"
+        letra_vendedor = get_column_letter(col_vendedor_idx) # "R"
         
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
-            # Busca el código del vendedor (columna R) en la hoja "vendedor" columnas A:C, devuelve columna 3 (Marca)
             celda_comercial.value = f'=IFERROR(VLOOKUP(R{r_idx},vendedor!$B:$C,2,FALSE),"")'
         
-        # Agregar la fórmula a todas las nuevas filas
-        #for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
-            #celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
-            # Nota: Excel acepta las funciones en inglés independientemente del idioma
-            #celda_comercial.value = '=IFERROR(VLOOKUP([@Vendedor],codigos_vendedor,2,0),"")'
-        
         status_placeholder.info(f"✅ Fórmula agregada a columna D en {num_nuevas_filas} nuevas filas")
-        
-        #NUEVO: Agregar fórmulas BUSCARV para las descripciones
-        #status_placeholder.info("Agregando fórmulas de descripción...")
-        
-        #from openpyxl.utils import get_column_letter
-        # Posiciones fijas de las columnas
-        #col_linea_idx = 7  # Columna F donde está "Línea"
-        #col_desc_linea_idx = 8  # Columna H donde va "Descripción Línea"
-        #col_sublinea_idx = 9  # Columna I donde está "Sublínea"
-        #col_desc_sublinea_idx = 10  # Columna J donde va "Descripción Sublínea"
 
-        # Convertir índices a letras
-        #letra_col_linea = get_column_letter(col_linea_idx)
-        #letra_col_sublinea = get_column_letter(col_sublinea_idx)
+        # --- Fórmulas para AJ y AK ---
+        col_aj_idx = 36
+        col_ak_idx = 37
         
-        # Agregar fórmulas para Descripción Línea (columna H)
-        #for r_idx in range(2, hoja.max_row + 1):
-            #celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
-            
-            # Fórmula BUSCARV que busca en la hoja "lineas"
-            #formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_linea}{r_idx}),lineas!$B:$C,2,FALSE),"")'
-            
-            #celda_desc_linea.value = formula
-        
-        #status_placeholder.info(f"✅ Fórmulas agregadas a columna H 'Descripción Línea' ({hoja.max_row - 1} filas)")
-        
-        # Agregar fórmulas para Descripción Sublínea (columna J)
-        #for r_idx in range(2, hoja.max_row + 1):
-            #celda_desc_sublinea = hoja.cell(row=r_idx, column=col_desc_sublinea_idx)
-            
-            # Ajusta el rango según dónde estén las sublíneas en la hoja "lineas"
-            # Si están en las mismas columnas A:B, usa esto. Si no, ajusta el rango
-            #formula = f'=IFERROR(VLOOKUP(VALUE({letra_col_sublinea}{r_idx}),Sublineas!$B:$D,3,FALSE),"")'
-            #celda_desc_sublinea.value = formula
-        
-        #status_placeholder.info(f"✅ Fórmulas agregadas a columna J 'Descripción Sublínea' ({hoja.max_row - 1} filas)")
-        #---------------------------------------------------------------------------------------------------------
-        status_placeholder.info("Agregando fórmulas de columnas AJ y AK...")
-
-        col_aj_idx = 36  # Columna AJ
-        col_ak_idx = 37  # Columna AK
-        col_compra_usd_idx = 34  # Columna AH (Compra en USD)
-        col_vr_total_me_idx = 23  # Columna W (Vr.Total ME)
-        
-        letra_compra_usd = get_column_letter(col_compra_usd_idx)  # Esto dará "AH"
-        letra_vr_total_me = get_column_letter(col_vr_total_me_idx)  # Esto dará "W"
-        # Calcular qué filas son nuevas
-        num_nuevas_filas = len(lista_nuevas_filas)
-        primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
-        # Agregar fórmulas a todas las nuevas filas
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
-            # Columna AJ: =IFERROR(1-(AH/W),0)
             celda_aj = hoja.cell(row=r_idx, column=col_aj_idx)
             celda_aj.value = f'=IFERROR(1-(AH{r_idx}/W{r_idx}),0)'
             
-            # Columna AK: =W-AH
             celda_ak = hoja.cell(row=r_idx, column=col_ak_idx)
             celda_ak.value = f'=W{r_idx}-AH{r_idx}'
         
         status_placeholder.info(f"✅ Fórmulas agregadas a columnas AJ y AK en {num_nuevas_filas} nuevas filas")
+
+        # ==============================================================================
+        # PASO 6: GUARDAR Y SUBIR
+        # ==============================================================================
+        status_placeholder.info("7/7 - Guardando y subiendo archivo final...")
         
-        # Guardar y subir
         output = io.BytesIO()
         libro.save(output)
         
@@ -219,13 +240,14 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         response_put = requests.put(endpoint_put, data=output.getvalue(), headers=headers)
         response_put.raise_for_status()
 
-        status_placeholder.success("✅ ¡Archivo TRM actualizado! Las fórmulas deberían haberse extendido automáticamente.")
+        status_placeholder.success(f"✅ ¡Archivo TRM actualizado! Se añadieron {num_nuevas_filas} registros nuevos y únicos.")
         return True
 
     except Exception as e:
         status_placeholder.error(f"❌ Falló la actualización del archivo TRM. Error: {e}")
+        import traceback
+        status_placeholder.error(f"Detalles del error: {traceback.format_exc()}")
         return False
-
 
 
 def validar_respuesta_sharepoint(response, nombre_archivo):
