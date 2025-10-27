@@ -36,7 +36,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
     
     INCLUYE DIAGNÓSTICOS VISUALES DE STREAMLIT para la deduplicación.
     
-    VERSIÓN 3: Ignora las columnas de fórmula (D, AJ, AK) durante la deduplicación.
+    VERSIÓN 4: Corrige el TypeError (len of float) en el panel de diagnóstico.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización (modo apéndice) de la hoja '{nombre_hoja_destino}'...")
@@ -61,8 +61,6 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         columnas_destino = [cell.value for cell in hoja_temp[1] if cell.value is not None]
         num_encabezados = len(columnas_destino)
 
-        # --- MODIFICACIÓN 1: Definir las columnas de fórmula ---
-        # Guardamos los NOMBRES de las columnas que se calculan por fórmula
         col_d_nombre = None
         col_aj_nombre = None
         col_ak_nombre = None
@@ -74,12 +72,10 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         if len(columnas_destino) > 36:
             col_ak_nombre = columnas_destino[36] # Col AK (índice 36)
         
-        # Lista de columnas a ignorar en la deduplicación
         cols_formula_a_ignorar = [col for col in [col_d_nombre, col_aj_nombre, col_ak_nombre] if col is not None]
         
         if cols_formula_a_ignorar:
             status_placeholder.info(f"Deduplicación ignorará columnas de fórmula: {', '.join(cols_formula_a_ignorar)}")
-        # --- FIN MODIFICACIÓN 1 ---
 
         df_existente = pd.read_excel(io.BytesIO(contenido_trm_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_existente.reset_index(drop=True, inplace=True)
@@ -185,12 +181,10 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         
         df_temp_string = df_combinado.copy()
         
-        # --- MODIFICACIÓN 2: Excluir las columnas de fórmula de la normalización y comparación ---
         cols_to_normalize = [
             col for col in df_temp_string.columns 
             if col != '__source__' and col not in cols_formula_a_ignorar
         ]
-        # --- FIN MODIFICACIÓN 2 ---
 
         for col in cols_to_normalize:
             try:
@@ -208,7 +202,6 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
                 .str.strip()
             )
         
-        # Usamos 'subset=cols_to_normalize' para comparar SOLO las columnas de datos fuente
         mascara_duplicados = df_temp_string.duplicated(subset=cols_to_normalize, keep='first')
         
         duplicados_encontrados_en_nuevos = mascara_duplicados[df_combinado['__source__'] == 'nuevo'].sum()
@@ -258,21 +251,39 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
                             st.success(f"✅ Encontrado posible gemelo en índice {posible_gemelo}")
                             
                             diferencias_detalladas = []
-                            # Iteramos sobre TODAS las columnas (incluidas las de fórmula) para el diagnóstico visual
                             for col in [c for c in df_temp_string.columns if c != '__source__']:
                                 val_existente = df_temp_string.iloc[posible_gemelo][col]
                                 val_nuevo = df_temp_string.iloc[indice_problema][col]
                                 
-                                if val_existente != val_nuevo:
-                                    # Marcar si esta columna fue ignorada en la deduplicación
+                                # Convertimos a string aquí para la comparación de texto
+                                val_existente_str = str(val_existente)
+                                val_nuevo_str = str(val_nuevo)
+                                
+                                # --- INICIO DE LA CORRECCIÓN ---
+                                # Normalizamos los valores de la misma forma que en la deduplicación
+                                # para la comparación visual, PERO lo hacemos con str() primero
+                                # para evitar el error len(float)
+                                
+                                if col in cols_to_normalize:
+                                    # Si es una columna normalizada, aplicamos las reglas de string
+                                    val_existente_str = val_existente_str.replace('.0', '').strip()
+                                    val_nuevo_str = val_nuevo_str.replace('.0', '').strip()
+                                # Si no, simplemente usamos la conversión a str()
+                                # --- FIN DE LA CORRECCIÓN PARCIAL ---
+
+
+                                if val_existente_str != val_nuevo_str:
                                     fue_ignorada = "SÍ (Fórmula)" if col in cols_formula_a_ignorar else "NO"
                                     
+                                    # --- INICIO DE LA CORRECCIÓN FINAL ---
+                                    # Usamos str(val_existente) y str(val_nuevo) para el len()
                                     diferencias_detalladas.append({
                                         'Columna': col,
-                                        'Valor Existente (string norm.)': f'"{val_existente}" (len={len(val_existente)})',
-                                        'Valor Nuevo (string norm.)': f'"{val_nuevo}" (len={len(val_nuevo)})',
+                                        'Valor Existente': f'"{val_existente_str}" (len={len(val_existente_str)})',
+                                        'Valor Nuevo': f'"{val_nuevo_str}" (len={len(val_nuevo_str)})',
                                         'Ignorada en Dedupl.': fue_ignorada
                                     })
+                                    # --- FIN DE LA CORRECCIÓN FINAL ---
                             
                             if diferencias_detalladas:
                                 st.error(f"❌ Encontradas {len(diferencias_detalladas)} columnas diferentes (comparando como texto):")
@@ -295,7 +306,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
                                 st.dataframe(pd.DataFrame(diferencias_originales))
                                 
                             else:
-                                st.success("✅ No se encontraron diferencias en la comparación de texto (Esto es raro, revisa la lógica).")
+                                st.success("✅ No se encontraron diferencias en la comparación de texto.")
                         else:
                             st.warning(f"⚠️ No se encontró un registro existente con '{col_key_nombre}' = {codigo_buscar}. Este registro es genuinamente nuevo.")
 
