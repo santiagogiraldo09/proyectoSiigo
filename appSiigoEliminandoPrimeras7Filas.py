@@ -32,6 +32,8 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
     """
     Actualiza la hoja "Datos" del TRM.xlsx añadiendo solo nuevas filas ÚNICAS
     (evitando duplicados) y extendiendo las Tablas de Excel.
+    
+    INCLUYE DIAGNÓSTICOS VISUALES DE STREAMLIT para la deduplicación.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización (modo apéndice) de la hoja '{nombre_hoja_destino}'...")
@@ -43,12 +45,10 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         if contenido_trm_bytes is None: return False
 
         # ==============================================================================
-        # NUEVO: PASO 2 - LEER DATOS EXISTENTES Y PREPARAR DATOS NUEVOS
+        # PASO 2: LEER DATOS EXISTENTES Y PREPARAR DATOS NUEVOS
         # ==============================================================================
         status_placeholder.info("2/7 - Leyendo datos existentes para deduplicación...")
         
-        # Cargar el libro con Openpyxl solo para obtener los nombres de las columnas
-        # Esto asegura que capturemos los nombres exactos como están en el archivo
         libro_temp = openpyxl.load_workbook(io.BytesIO(contenido_trm_bytes))
         if nombre_hoja_destino not in libro_temp.sheetnames:
             status_placeholder.error(f"❌ No se encontró la hoja '{nombre_hoja_destino}'.")
@@ -58,16 +58,13 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         columnas_destino = [cell.value for cell in hoja_temp[1] if cell.value is not None]
         num_encabezados = len(columnas_destino)
 
-        # Leer los datos existentes en un DataFrame
         df_existente = pd.read_excel(io.BytesIO(contenido_trm_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_existente.reset_index(drop=True, inplace=True)
-        # Asegurar que las columnas del DF coincidan con las leídas por openpyxl
         df_existente.columns = columnas_destino[:len(df_existente.columns)]
 
 
         status_placeholder.info(f"3/7 - Preparando {len(df_datos_procesados)} nuevos registros...")
         
-        # Calcular el año y mes a usar
         fecha_actual = datetime.now()
         dia_actual = fecha_actual.day
         anio = fecha_actual.year
@@ -82,19 +79,17 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         
         status_placeholder.info(f"Usando fecha: Año {anio}, Mes {mes}")
 
-        # Convertir los datos procesados al formato del archivo TRM (en un DataFrame)
         nuevas_filas_list_of_dicts = []
         for index, fila_procesada in df_datos_procesados.iterrows():
-            nueva_fila_dict = {col: "" for col in columnas_destino} # Iniciar con valores vacíos
+            nueva_fila_dict = {col: "" for col in columnas_destino}
             
-            # Mapear los datos fijos
             if len(columnas_destino) > 0: nueva_fila_dict[columnas_destino[0]] = anio
             if len(columnas_destino) > 1: nueva_fila_dict[columnas_destino[1]] = mes
             if len(columnas_destino) > 2: nueva_fila_dict[columnas_destino[2]] = "Colombia"
             
-            # Mapear los datos del DataFrame procesado
+            # Mapeo de columnas: df_result[i] va a destino[i+4] (saltando la col D de fórmula)
             for i, valor in enumerate(fila_procesada.values):
-                col_index_destino = i + 4 # Empezar a mapear en la 5ta columna (índice 4)
+                col_index_destino = i + 4 
                 if col_index_destino < num_encabezados:
                     nueva_fila_dict[columnas_destino[col_index_destino]] = valor
             
@@ -102,21 +97,80 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
 
         if nuevas_filas_list_of_dicts:
             df_nuevos_mapeados = pd.DataFrame(nuevas_filas_list_of_dicts)
+            # Reordenar las columnas del DF nuevo para que coincidan 100% con el existente
+            df_nuevos_mapeados = df_nuevos_mapeados[columnas_destino] 
         else:
-            df_nuevos_mapeados = pd.DataFrame(columns=columnas_destino) # DataFrame vacío
+            df_nuevos_mapeados = pd.DataFrame(columns=columnas_destino)
 
         # ==============================================================================
-        # NUEVO: PASO 3 - LÓGICA DE DEDUPLICACIÓN
+        # NUEVO: PASO 3 - DIAGNÓSTICO VISUAL DE TIPOS DE DATOS
+        # ==============================================================================
+        status_placeholder.info("🔍 DIAGNÓSTICO: Comparando tipos de datos...")
+        
+        st.write("### 📊 TIPOS DE DATOS - ARCHIVO TRM EXISTENTE (Fila 2 / Índice 0)")
+        if len(df_existente) > 0:
+            tipos_existente = {}
+            for col in df_existente.columns:
+                valor = df_existente.iloc[0][col]
+                tipo = type(valor).__name__
+                tipos_existente[col] = f"{tipo} | Valor: {str(valor)[:50]}" # Limitar longitud
+            
+            st.dataframe(pd.DataFrame({
+                'Columna': list(tipos_existente.keys()),
+                'Tipo y Valor': list(tipos_existente.values())
+            }))
+        else:
+            st.warning("⚠️ El archivo TRM existente no tiene datos (solo encabezados).")
+        
+        st.write("### 📊 TIPOS DE DATOS - DATOS NUEVOS MAPEADOS (Primera fila nueva / Índice 0)")
+        if len(df_nuevos_mapeados) > 0:
+            tipos_nuevos = {}
+            for col in df_nuevos_mapeados.columns:
+                valor = df_nuevos_mapeados.iloc[0][col]
+                tipo = type(valor).__name__
+                tipos_nuevos[col] = f"{tipo} | Valor: {str(valor)[:50]}" # Limitar longitud
+            
+            st.dataframe(pd.DataFrame({
+                'Columna': list(tipos_nuevos.keys()),
+                'Tipo y Valor': list(tipos_nuevos.values())
+            }))
+        else:
+            st.warning("⚠️ No hay datos nuevos para agregar.")
+
+        st.write("### 🔍 COMPARACIÓN DE DIFERENCIAS DE TIPO")
+        columnas_comunes = set(df_existente.columns) & set(df_nuevos_mapeados.columns)
+        diferencias_tipo = []
+        
+        if len(df_existente) > 0 and len(df_nuevos_mapeados) > 0:
+            for col in columnas_comunes:
+                tipo_existente = type(df_existente.iloc[0][col]).__name__
+                tipo_nuevo = type(df_nuevos_mapeados.iloc[0][col]).__name__
+                
+                if tipo_existente != tipo_nuevo:
+                    diferencias_tipo.append({
+                        'Columna': col,
+                        'Tipo Existente': tipo_existente,
+                        'Valor Existente': str(df_existente.iloc[0][col])[:50],
+                        'Tipo Nuevo': tipo_nuevo,
+                        'Valor Nuevo': str(df_nuevos_mapeados.iloc[0][col])[:50]
+                    })
+        
+        if diferencias_tipo:
+            st.error("❌ COLUMNAS CON TIPOS DE DATOS DIFERENTES:")
+            st.dataframe(pd.DataFrame(diferencias_tipo))
+        else:
+            st.success("✅ Todos los tipos de datos coinciden en columnas comunes (basado en la primera fila).")
+        
+        # ==============================================================================
+        # PASO 4: LÓGICA DE DEDUPLICACIÓN
         # ==============================================================================
         status_placeholder.info(f"4/7 - Ejecutando lógica de deduplicación...")
         
-        # Añadir un identificador temporal para saber qué filas son nuevas
         df_existente['__source__'] = 'existente'
         df_nuevos_mapeados['__source__'] = 'nuevo'
 
         df_combinado = pd.concat([df_existente, df_nuevos_mapeados], ignore_index=True)
         
-        # --- Copia de la lógica de deduplicación robusta ---
         df_temp_string = df_combinado.copy()
         cols_to_normalize = [col for col in df_temp_string.columns if col != '__source__']
 
@@ -136,78 +190,144 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
                 .str.strip()
             )
         
-        # Identificar duplicados usando la versión temporal en string
         mascara_duplicados = df_temp_string.duplicated(subset=cols_to_normalize, keep='first')
         
-        # Contar cuántos de los "nuevos" fueron marcados como duplicados
         duplicados_encontrados_en_nuevos = mascara_duplicados[df_combinado['__source__'] == 'nuevo'].sum()
         if duplicados_encontrados_en_nuevos > 0:
             status_placeholder.warning(f"⚠️ Se encontraron {duplicados_encontrados_en_nuevos} registros nuevos que ya existían y serán omitidos.")
         else:
-            status_placeholder.info("✅ No se encontraron registros duplicados.")
+            status_placeholder.info("✅ No se encontraron registros duplicados en los nuevos.")
 
-        # Filtrar el DataFrame combinado (con tipos originales)
-        df_combinado_filtrado = df_combinado[~mascara_duplicados]
+        # ==============================================================================
+        # NUEVO: PASO 5 - INVESTIGACIÓN VISUAL DE DUPLICADOS
+        # ==============================================================================
+        if len(df_nuevos_mapeados) > 0:
+            st.write("### 🔍 INVESTIGANDO REGISTROS NO DETECTADOS COMO DUPLICADOS (EN TRM)")
+            
+            inicio_nuevos = len(df_existente)
+            registros_nuevos_no_duplicados = sum(~mascara_duplicados[inicio_nuevos:])
+            
+            st.warning(f"⚠️ De {len(df_nuevos_mapeados)} registros nuevos, {registros_nuevos_no_duplicados} NO fueron detectados como duplicados y se añadirán.")
+            
+            if registros_nuevos_no_duplicados > 0 and duplicados_encontrados_en_nuevos > 0:
+                st.info("Esto significa que ALGUNOS se detectaron y OTROS NO. Investigando diferencias...")
+                
+                indices_nuevos_no_detectados = [i for i in range(inicio_nuevos, len(df_combinado)) if not mascara_duplicados[i]]
+                
+                if indices_nuevos_no_detectados:
+                    indice_problema = indices_nuevos_no_detectados[0]
+                    
+                    st.write(f"#### Analizando registro en índice {indice_problema} (NO detectado como duplicado)")
+                    
+                    # Intentar encontrar una columna clave para la búsqueda. 
+                    # 'Código' de df_result se mapea a columnas_destino[10]
+                    col_key_nombre = None
+                    if len(columnas_destino) > 10:
+                        col_key_nombre = columnas_destino[10] # Columna K por defecto
+                    
+                    if col_key_nombre is None or col_key_nombre not in df_temp_string.columns:
+                        st.warning("No se pudo identificar la columna 'Código' (K) para buscar gemelos.")
+                    else:
+                        codigo_buscar = df_temp_string.iloc[indice_problema][col_key_nombre]
+                        st.write(f"Buscando en registros existentes con '{col_key_nombre}': **{codigo_buscar}**")
+                        
+                        posible_gemelo = None
+                        for i in range(inicio_nuevos):
+                            if df_temp_string.iloc[i][col_key_nombre] == codigo_buscar:
+                                posible_gemelo = i
+                                break
+                        
+                        if posible_gemelo is not None:
+                            st.success(f"✅ Encontrado posible gemelo en índice {posible_gemelo}")
+                            
+                            diferencias_detalladas = []
+                            for col in cols_to_normalize:
+                                val_existente = df_temp_string.iloc[posible_gemelo][col]
+                                val_nuevo = df_temp_string.iloc[indice_problema][col]
+                                
+                                if val_existente != val_nuevo:
+                                    diferencias_detalladas.append({
+                                        'Columna': col,
+                                        'Valor Existente (string norm.)': f'"{val_existente}" (len={len(val_existente)})',
+                                        'Valor Nuevo (string norm.)': f'"{val_nuevo}" (len={len(val_nuevo)})',
+                                        'Son iguales?': 'NO ❌'
+                                    })
+                            
+                            if diferencias_detalladas:
+                                st.error(f"❌ Encontradas {len(diferencias_detalladas)} columnas diferentes (comparando como texto):")
+                                st.dataframe(pd.DataFrame(diferencias_detalladas))
+                                
+                                # Mostrar también los valores ORIGINALES
+                                st.write("#### Valores ORIGINALES (con tipos de datos originales):")
+                                diferencias_originales = []
+                                for diff in diferencias_detalladas:
+                                    col_name = diff['Columna']
+                                    val_orig_existente = df_combinado.iloc[posible_gemelo][col_name]
+                                    val_orig_nuevo = df_combinado.iloc[indice_problema][col_name]
+                                    
+                                    diferencias_originales.append({
+                                        'Columna': col_name,
+                                        'Valor Existente': val_orig_existente,
+                                        'Tipo Existente': type(val_orig_existente).__name__,
+                                        'Valor Nuevo': val_orig_nuevo,
+                                        'Tipo Nuevo': type(val_orig_nuevo).__name__
+                                    })
+                                st.dataframe(pd.DataFrame(diferencias_originales))
+                                
+                            else:
+                                st.success("✅ No se encontraron diferencias en la comparación de texto (Esto es raro, revisa la lógica).")
+                        else:
+                            st.warning(f"⚠️ No se encontró un registro existente con '{col_key_nombre}' = {codigo_buscar}. Este registro es genuinamente nuevo.")
+
+        # ==============================================================================
+        # PASO 6: AÑADIR LAS FILAS ÚNICAS Y SUBIR
+        # ==============================================================================
         
-        # Aislar solo las filas "nuevas" que sobrevivieron (que son únicas)
+        df_combinado_filtrado = df_combinado[~mascara_duplicados]
         df_filas_a_anadir = df_combinado_filtrado[df_combinado_filtrado['__source__'] == 'nuevo']
         df_filas_a_anadir = df_filas_a_anadir.drop(columns=['__source__'])
 
-        # ==============================================================================
-        # PASO 4: AÑADIR LAS FILAS ÚNICAS Y SUBIR
-        # ==============================================================================
-        
         if df_filas_a_anadir.empty:
             status_placeholder.success("✅ No se encontraron registros nuevos para añadir. El archivo TRM ya está actualizado.")
             return True
 
         status_placeholder.info(f"5/7 - Añadiendo {len(df_filas_a_anadir)} nuevos registros únicos...")
 
-        # Convertir el DataFrame de filas a añadir en una lista de listas para openpyxl
         lista_nuevas_filas_final = [list(row) for row in df_filas_a_anadir.itertuples(index=False, name=None)]
 
-        # Cargar el libro de trabajo real para modificarlo
         libro = openpyxl.load_workbook(io.BytesIO(contenido_trm_bytes))
         hoja = libro[nombre_hoja_destino]
         
-        # Detectar la Tabla de Excel
         tabla = None
         if hoja.tables:
             nombre_tabla = list(hoja.tables.keys())[0]
             tabla = hoja.tables[nombre_tabla]
             status_placeholder.info(f"✅ Tabla encontrada: '{nombre_tabla}' con rango {tabla.ref}")
         else:
-            status_placeholder.warning("⚠️ No se encontró ninguna Tabla de Excel. Las fórmulas podrían no extenderse automáticamente.")
+            status_placeholder.warning("⚠️ No se encontró ninguna Tabla de Excel.")
 
-        # Añadir las nuevas filas únicas
         for fila in lista_nuevas_filas_final:
             hoja.append(fila)
         
-        # Extender el rango de la Tabla si existe
         if tabla:
             rango_actual = tabla.ref
             inicio_rango = rango_actual.split(':')[0]
             columna_final = rango_actual.split(':')[1].rstrip('0123456789')
-            
             nueva_fila_final = hoja.max_row
             nuevo_rango = f"{inicio_rango}:{columna_final}{nueva_fila_final}"
-            
             tabla.ref = nuevo_rango
             status_placeholder.info(f"✅ Rango de la Tabla extendido de {rango_actual} a {nuevo_rango}")
 
         # ==============================================================================
-        # PASO 5: INYECTAR FÓRMULAS (Lógica original)
+        # PASO 7: INYECTAR FÓRMULAS
         # ==============================================================================
         status_placeholder.info("6/7 - Agregando fórmulas a las nuevas filas...")
 
-        col_comercial_idx = 4  # Columna D
-        col_vendedor_idx = 18  # Columna R
+        col_comercial_idx = 4
+        col_vendedor_idx = 18
         
-        # Calcular qué filas son nuevas
         num_nuevas_filas = len(lista_nuevas_filas_final)
         primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
-        
-        letra_vendedor = get_column_letter(col_vendedor_idx) # "R"
         
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
@@ -215,7 +335,6 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         
         status_placeholder.info(f"✅ Fórmula agregada a columna D en {num_nuevas_filas} nuevas filas")
 
-        # --- Fórmulas para AJ y AK ---
         col_aj_idx = 36
         col_ak_idx = 37
         
@@ -229,7 +348,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         status_placeholder.info(f"✅ Fórmulas agregadas a columnas AJ y AK en {num_nuevas_filas} nuevas filas")
 
         # ==============================================================================
-        # PASO 6: GUARDAR Y SUBIR
+        # PASO 8: GUARDAR Y SUBIR
         # ==============================================================================
         status_placeholder.info("7/7 - Guardando y subiendo archivo final...")
         
