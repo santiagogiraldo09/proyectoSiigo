@@ -28,12 +28,15 @@ RUTA_CARPETA_VENTAS_MENSUALES = "Ventas con ciudad 2025"
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 SCOPES = ["https://graph.microsoft.com/.default"]
 
+
 def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesados, status_placeholder):
     """
     Actualiza la hoja "Datos" del TRM.xlsx añadiendo solo nuevas filas ÚNICAS
     (evitando duplicados) y extendiendo las Tablas de Excel.
     
     INCLUYE DIAGNÓSTICOS VISUALES DE STREAMLIT para la deduplicación.
+    
+    VERSIÓN 3: Ignora las columnas de fórmula (D, AJ, AK) durante la deduplicación.
     """
     nombre_hoja_destino = "Datos"
     status_placeholder.info(f"🔄 Iniciando actualización (modo apéndice) de la hoja '{nombre_hoja_destino}'...")
@@ -57,6 +60,26 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         hoja_temp = libro_temp[nombre_hoja_destino]
         columnas_destino = [cell.value for cell in hoja_temp[1] if cell.value is not None]
         num_encabezados = len(columnas_destino)
+
+        # --- MODIFICACIÓN 1: Definir las columnas de fórmula ---
+        # Guardamos los NOMBRES de las columnas que se calculan por fórmula
+        col_d_nombre = None
+        col_aj_nombre = None
+        col_ak_nombre = None
+
+        if len(columnas_destino) > 3:
+            col_d_nombre = columnas_destino[3] # Col D (índice 3)
+        if len(columnas_destino) > 35:
+            col_aj_nombre = columnas_destino[35] # Col AJ (índice 35)
+        if len(columnas_destino) > 36:
+            col_ak_nombre = columnas_destino[36] # Col AK (índice 36)
+        
+        # Lista de columnas a ignorar en la deduplicación
+        cols_formula_a_ignorar = [col for col in [col_d_nombre, col_aj_nombre, col_ak_nombre] if col is not None]
+        
+        if cols_formula_a_ignorar:
+            status_placeholder.info(f"Deduplicación ignorará columnas de fórmula: {', '.join(cols_formula_a_ignorar)}")
+        # --- FIN MODIFICACIÓN 1 ---
 
         df_existente = pd.read_excel(io.BytesIO(contenido_trm_bytes), sheet_name=nombre_hoja_destino, engine='openpyxl')
         df_existente.reset_index(drop=True, inplace=True)
@@ -87,7 +110,6 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             if len(columnas_destino) > 1: nueva_fila_dict[columnas_destino[1]] = mes
             if len(columnas_destino) > 2: nueva_fila_dict[columnas_destino[2]] = "Colombia"
             
-            # Mapeo de columnas: df_result[i] va a destino[i+4] (saltando la col D de fórmula)
             for i, valor in enumerate(fila_procesada.values):
                 col_index_destino = i + 4 
                 if col_index_destino < num_encabezados:
@@ -97,13 +119,12 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
 
         if nuevas_filas_list_of_dicts:
             df_nuevos_mapeados = pd.DataFrame(nuevas_filas_list_of_dicts)
-            # Reordenar las columnas del DF nuevo para que coincidan 100% con el existente
             df_nuevos_mapeados = df_nuevos_mapeados[columnas_destino] 
         else:
             df_nuevos_mapeados = pd.DataFrame(columns=columnas_destino)
 
         # ==============================================================================
-        # NUEVO: PASO 3 - DIAGNÓSTICO VISUAL DE TIPOS DE DATOS
+        # PASO 3: DIAGNÓSTICO VISUAL DE TIPOS DE DATOS
         # ==============================================================================
         status_placeholder.info("🔍 DIAGNÓSTICO: Comparando tipos de datos...")
         
@@ -113,12 +134,8 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             for col in df_existente.columns:
                 valor = df_existente.iloc[0][col]
                 tipo = type(valor).__name__
-                tipos_existente[col] = f"{tipo} | Valor: {str(valor)[:50]}" # Limitar longitud
-            
-            st.dataframe(pd.DataFrame({
-                'Columna': list(tipos_existente.keys()),
-                'Tipo y Valor': list(tipos_existente.values())
-            }))
+                tipos_existente[col] = f"{tipo} | Valor: {str(valor)[:50]}"
+            st.dataframe(pd.DataFrame({'Columna': list(tipos_existente.keys()), 'Tipo y Valor': list(tipos_existente.values())}))
         else:
             st.warning("⚠️ El archivo TRM existente no tiene datos (solo encabezados).")
         
@@ -128,12 +145,8 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             for col in df_nuevos_mapeados.columns:
                 valor = df_nuevos_mapeados.iloc[0][col]
                 tipo = type(valor).__name__
-                tipos_nuevos[col] = f"{tipo} | Valor: {str(valor)[:50]}" # Limitar longitud
-            
-            st.dataframe(pd.DataFrame({
-                'Columna': list(tipos_nuevos.keys()),
-                'Tipo y Valor': list(tipos_nuevos.values())
-            }))
+                tipos_nuevos[col] = f"{tipo} | Valor: {str(valor)[:50]}"
+            st.dataframe(pd.DataFrame({'Columna': list(tipos_nuevos.keys()), 'Tipo y Valor': list(tipos_nuevos.values())}))
         else:
             st.warning("⚠️ No hay datos nuevos para agregar.")
 
@@ -145,7 +158,6 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             for col in columnas_comunes:
                 tipo_existente = type(df_existente.iloc[0][col]).__name__
                 tipo_nuevo = type(df_nuevos_mapeados.iloc[0][col]).__name__
-                
                 if tipo_existente != tipo_nuevo:
                     diferencias_tipo.append({
                         'Columna': col,
@@ -164,7 +176,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         # ==============================================================================
         # PASO 4: LÓGICA DE DEDUPLICACIÓN
         # ==============================================================================
-        status_placeholder.info(f"4/7 - Ejecutando lógica de deduplicación...")
+        status_placeholder.info(f"4/7 - Ejecutando lógica de deduplicación (ignorando columnas de fórmula)...")
         
         df_existente['__source__'] = 'existente'
         df_nuevos_mapeados['__source__'] = 'nuevo'
@@ -172,7 +184,13 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         df_combinado = pd.concat([df_existente, df_nuevos_mapeados], ignore_index=True)
         
         df_temp_string = df_combinado.copy()
-        cols_to_normalize = [col for col in df_temp_string.columns if col != '__source__']
+        
+        # --- MODIFICACIÓN 2: Excluir las columnas de fórmula de la normalización y comparación ---
+        cols_to_normalize = [
+            col for col in df_temp_string.columns 
+            if col != '__source__' and col not in cols_formula_a_ignorar
+        ]
+        # --- FIN MODIFICACIÓN 2 ---
 
         for col in cols_to_normalize:
             try:
@@ -190,6 +208,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
                 .str.strip()
             )
         
+        # Usamos 'subset=cols_to_normalize' para comparar SOLO las columnas de datos fuente
         mascara_duplicados = df_temp_string.duplicated(subset=cols_to_normalize, keep='first')
         
         duplicados_encontrados_en_nuevos = mascara_duplicados[df_combinado['__source__'] == 'nuevo'].sum()
@@ -199,7 +218,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             status_placeholder.info("✅ No se encontraron registros duplicados en los nuevos.")
 
         # ==============================================================================
-        # NUEVO: PASO 5 - INVESTIGACIÓN VISUAL DE DUPLICADOS
+        # PASO 5: INVESTIGACIÓN VISUAL DE DUPLICADOS
         # ==============================================================================
         if len(df_nuevos_mapeados) > 0:
             st.write("### 🔍 INVESTIGANDO REGISTROS NO DETECTADOS COMO DUPLICADOS (EN TRM)")
@@ -219,11 +238,9 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
                     
                     st.write(f"#### Analizando registro en índice {indice_problema} (NO detectado como duplicado)")
                     
-                    # Intentar encontrar una columna clave para la búsqueda. 
-                    # 'Código' de df_result se mapea a columnas_destino[10]
                     col_key_nombre = None
                     if len(columnas_destino) > 10:
-                        col_key_nombre = columnas_destino[10] # Columna K por defecto
+                        col_key_nombre = columnas_destino[10] # Columna K (Código)
                     
                     if col_key_nombre is None or col_key_nombre not in df_temp_string.columns:
                         st.warning("No se pudo identificar la columna 'Código' (K) para buscar gemelos.")
@@ -241,23 +258,26 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
                             st.success(f"✅ Encontrado posible gemelo en índice {posible_gemelo}")
                             
                             diferencias_detalladas = []
-                            for col in cols_to_normalize:
+                            # Iteramos sobre TODAS las columnas (incluidas las de fórmula) para el diagnóstico visual
+                            for col in [c for c in df_temp_string.columns if c != '__source__']:
                                 val_existente = df_temp_string.iloc[posible_gemelo][col]
                                 val_nuevo = df_temp_string.iloc[indice_problema][col]
                                 
                                 if val_existente != val_nuevo:
+                                    # Marcar si esta columna fue ignorada en la deduplicación
+                                    fue_ignorada = "SÍ (Fórmula)" if col in cols_formula_a_ignorar else "NO"
+                                    
                                     diferencias_detalladas.append({
                                         'Columna': col,
                                         'Valor Existente (string norm.)': f'"{val_existente}" (len={len(val_existente)})',
                                         'Valor Nuevo (string norm.)': f'"{val_nuevo}" (len={len(val_nuevo)})',
-                                        'Son iguales?': 'NO ❌'
+                                        'Ignorada en Dedupl.': fue_ignorada
                                     })
                             
                             if diferencias_detalladas:
                                 st.error(f"❌ Encontradas {len(diferencias_detalladas)} columnas diferentes (comparando como texto):")
                                 st.dataframe(pd.DataFrame(diferencias_detalladas))
                                 
-                                # Mostrar también los valores ORIGINALES
                                 st.write("#### Valores ORIGINALES (con tipos de datos originales):")
                                 diferencias_originales = []
                                 for diff in diferencias_detalladas:
