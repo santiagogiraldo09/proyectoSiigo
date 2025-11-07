@@ -570,8 +570,8 @@ def encontrar_archivo_del_mes(headers, site_id, ruta_carpeta, status_placeholder
         # Diferentes patrones que podría tener el archivo
         patrones_busqueda = [
             f"{mes_numero}. ",  # "9. " para septiembre
-            "Octumbre",       # Nombre completo del mes
-            "octubre",       # Minúscula
+            "Noviembre",       # Nombre completo del mes
+            "noviembre",       # Minúscula
             f"{mes_numero:02d}",# "09" con cero delante
         ]
         
