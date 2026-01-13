@@ -1411,7 +1411,7 @@ if uploaded_file is not None:
                     headers = {'Authorization': f'Bearer {token}'}
                     # 3. Encontrar el archivo del mes
                     ruta_archivo_mensual = encontrar_archivo_del_mes(headers, site_id, RUTA_CARPETA_VENTAS_MENSUALES, status_placeholder)
-                    ruta_fija_trm = "01 Archivos Area Administrativa/TRM4.xlsx"
+                    ruta_fija_trm = "01 Archivos Area Administrativa/TRM.xlsx"
                     exito_trm = actualizar_archivo_trm(headers, site_id, ruta_fija_trm, df_result, status_placeholder)
                     #st.info("Archivo TRM actualizado con Éxito")
                     if ruta_archivo_mensual:
