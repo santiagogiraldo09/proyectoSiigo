@@ -1318,6 +1318,37 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
  
         st.success("¡Procesamiento completado con éxito!")
         
+        ### ---- ESTO ES LO NUEVO -----### 
+        # --- SEGUNDA VERIFICACIÓN DE DUPLICADOS (Interna del DataFrame) ---
+        st.info("Ejecutando segunda verificación de duplicados internos...")
+        
+        # Definimos las columnas que identifican un registro único según tu regla
+        columnas_unicas = [
+            'REL_Factura proveedor', 
+            'Código', 
+            'REL_Nombre tercero', 
+            'Nombre tercero', 
+            'Identificación', 
+            'Fecha elaboración'
+        ]
+        
+        # Verificamos cuáles de estas columnas existen realmente en el DF para evitar errores
+        cols_presentes = [c for c in columnas_unicas if c in df_procesado.columns]
+        
+        filas_antes_segunda_limpieza = len(df_procesado)
+        
+        # Eliminamos duplicados dejando solo la primera aparición
+        df_procesado = df_procesado.drop_duplicates(subset=cols_presentes, keep='first')
+        
+        filas_despues_segunda_limpieza = len(df_procesado)
+        duplicados_internos = filas_antes_segunda_limpieza - filas_despues_segunda_limpieza
+        
+        if duplicados_internos > 0:
+            st.warning(f"✅ Se eliminaron {duplicados_internos} registros duplicados encontrados dentro del mismo proceso.")
+        else:
+            st.success("✅ No se encontraron duplicados internos en esta ejecución.")
+        # -----------------------------------------------------------------
+        
         return df_procesado
 
     except Exception as e:
