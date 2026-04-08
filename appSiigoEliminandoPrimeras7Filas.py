@@ -1122,10 +1122,10 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 df_procesado['Número comprobante'] == 'FV-2'
             ]
                 
-            # Solución robusta: convierte a float para manejar decimales ocultos y luego a string
+            # Definir los valores (quitando decimales)
             choices = [
-                'FLE-' + df_procesado['Consecutivo'].astype(float).fillna(0).astype(int).astype(str),
-                'FSE-' + df_procesado['Consecutivo'].astype(float).fillna(0).astype(int).astype(str)
+                'FLE-' + df_procesado['Consecutivo'].apply(lambda x: f"{int(float(x))}" if pd.notnull(x) else ""),
+                'FSE-' + df_procesado['Consecutivo'].apply(lambda x: f"{int(float(x))}" if pd.notnull(x) else "")
             ]
             
             # Usar np.select para crear los valores de la nueva columna
