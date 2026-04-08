@@ -1121,13 +1121,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 df_procesado['Número comprobante'] == 'FV-1',
                 df_procesado['Número comprobante'] == 'FV-2'
             ]
-            
-            # Definir los valores a asignar para cada condición
-            '''choices = [
-                'FLE-' + df_procesado['Consecutivo'].astype('Int64').astype(str),
-                'FSE-' + df_procesado['Consecutivo'].astype('Int64').astype(str)
-            ]'''
-    
+                
             # Solución robusta: convierte a float para manejar decimales ocultos y luego a string
             choices = [
                 'FLE-' + df_procesado['Consecutivo'].astype(float).fillna(0).astype(int).astype(str),
