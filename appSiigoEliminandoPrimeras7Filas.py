@@ -1122,10 +1122,10 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 df_procesado['Número comprobante'] == 'FV-2'
             ]
                 
-            # Definir los valores (quitando decimales)
+            # Definir los valores a asignar para cada condición
             choices = [
-                'FLE-' + df_procesado['Consecutivo'].apply(lambda x: f"{int(float(x))}" if pd.notnull(x) else ""),
-                'FSE-' + df_procesado['Consecutivo'].apply(lambda x: f"{int(float(x))}" if pd.notnull(x) else "")
+                'FLE-' + df_procesado['Consecutivo'].astype('Int64').astype(str),
+                'FSE-' + df_procesado['Consecutivo'].astype('Int64').astype(str)
             ]
             
             # Usar np.select para crear los valores de la nueva columna
