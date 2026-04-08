@@ -1124,8 +1124,8 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 
             # Definir los valores a asignar para cada condición
             choices = [
-                'FLE-' + np.floor(df_procesado['Consecutivo']).astype('Int64').astype(str),
-                'FSE-' + np.floor(df_procesado['Consecutivo']).astype('Int64').astype(str)
+                'FLE-' + df_procesado['Consecutivo'].astype('Int64').astype(str),
+                'FSE-' + df_procesado['Consecutivo'].astype('Int64').astype(str)
             ]
             
             # Usar np.select para crear los valores de la nueva columna
@@ -1167,7 +1167,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             
             # Para evitar problemas, nos aseguramos de que la columna 'Tasa de cambio' sea numérica desde el principio.
             # Usamos la limpieza simple de comas que ya definimos.
-            df_procesado['Tasa de cambio'] = convertir_a_numero_limpiando_comas(df_procesado['Tasa de cambio']).fillna(0)
+            df_procesado['Tasa de cambio'] = convertir_a_numero_limpiando_comas(df_procesado['Tasa de cambio']).fillna(0.0).astype(float)
 
             # 1. EXTRAER el valor de las observaciones como texto.
             trm_extraida = df_procesado['Observaciones'].astype(str).str.extract(r'\{(.*?)\}')[0]
