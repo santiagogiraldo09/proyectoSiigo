@@ -1124,8 +1124,8 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 
             # Definir los valores a asignar para cada condición
             choices = [
-                'FLE-' + df_procesado['Consecutivo'].astype('Int64').astype(str),
-                'FSE-' + df_procesado['Consecutivo'].astype('Int64').astype(str)
+                'FLE-' + df_procesado['Consecutivo'].round(0).astype('Int64').astype(str),
+                'FSE-' + df_procesado['Consecutivo'].round(0).astype('Int64').astype(str),
             ]
             
             # Usar np.select para crear los valores de la nueva columna
