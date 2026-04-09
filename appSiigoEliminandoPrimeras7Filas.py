@@ -1349,18 +1349,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         # -----------------------------------------------------------------
         
         
-        # --- PASO: ACTUALIZACIÓN DE CANTIDAD DE VENTA (REL_Cantidad) ---
-        # Se analiza la coincidencia entre 'Nombre' y 'REL_Cantidad'
-        mask_coincidencias = df_procesado.duplicated(subset=['Nombre', 'REL_Cantidad'], keep=False)
         
-        if mask_coincidencias.any():
-            # Se sobrescribe el valor de 'REL_Cantidad' con el de 'Cantidad' de la misma fila
-            # Esto se hace para cada registro que formó parte del grupo de coincidencias
-            df_procesado.loc[mask_coincidencias, 'REL_Cantidad'] = df_procesado.loc[mask_coincidencias, 'Cantidad']
-            
-            st.success(f"✅ Se actualizó la 'Cantidad de Venta' en {mask_coincidencias.sum()} registros detectados.")
-        else:
-            st.info("No se encontraron registros que requieran consolidación de Cantidad de Venta.")
         
         
         return df_procesado
