@@ -1355,19 +1355,14 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         if 'Nombre' in df_procesado.columns and 'REL_Cantidad' in df_procesado.columns and 'Cantidad' in df_procesado.columns:
             
             # 1. Detectar qué combinaciones de (Nombre, REL_Cantidad) aparecen más de una vez
-            conteo = df_procesado.groupby(['Nombre', 'REL_Cantidad'])['Nombre'].transform('count')
+            conteo = df_procesado.groupby(['Nombre', 'Cantidad'])['Nombre'].transform('count')
             mask_repetidos = conteo > 1
-        
-            registros_afectados = mask_repetidos.sum()
-        
-            if registros_afectados > 0:
-                # 2. Solo en esos registros, copiar Cantidad → REL_Cantidad
+            
+            if mask_repetidos.any():
                 df_procesado.loc[mask_repetidos, 'REL_Cantidad'] = df_procesado.loc[mask_repetidos, 'Cantidad']
-                st.success(f"✅ Se actualizó 'REL_Cantidad' con el valor de 'Cantidad' en {registros_afectados} registros.")
+                st.success(f"✅ Se actualizó 'REL_Cantidad' con el valor de 'Cantidad' en {mask_repetidos.sum()} registros.")
             else:
-                st.info("No se encontraron registros repetidos en Descripción + Cantidad de Venta.")
-        else:
-            st.warning("⚠️ No se encontraron las columnas 'Nombre', 'REL_Cantidad' y/o 'Cantidad'.")
+                st.info("No se encontraron registros repetidos en Descripción + Cantidad.")
         
         return df_procesado
 
