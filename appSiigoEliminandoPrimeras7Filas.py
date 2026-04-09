@@ -1348,6 +1348,21 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             st.success("✅ No se encontraron duplicados internos en esta ejecución.")
         # -----------------------------------------------------------------
         
+        
+        # --- PASO: ACTUALIZACIÓN DE CANTIDAD DE VENTA (REL_Cantidad) ---
+        # Se analiza la coincidencia entre 'Nombre' y 'REL_Cantidad'
+        mask_coincidencias = df_procesado.duplicated(subset=['Nombre', 'REL_Cantidad'], keep=False)
+        
+        if mask_coincidencias.any():
+            # Se sobrescribe el valor de 'REL_Cantidad' con el de 'Cantidad' de la misma fila
+            # Esto se hace para cada registro que formó parte del grupo de coincidencias
+            df_procesado.loc[mask_coincidencias, 'REL_Cantidad'] = df_procesado.loc[mask_coincidencias, 'Cantidad']
+            
+            st.success(f"✅ Se actualizó la 'Cantidad de Venta' en {mask_coincidencias.sum()} registros detectados.")
+        else:
+            st.info("No se encontraron registros que requieran consolidación de Cantidad de Venta.")
+        
+        
         return df_procesado
 
     except Exception as e:
@@ -1441,7 +1456,7 @@ if uploaded_file is not None:
                     headers = {'Authorization': f'Bearer {token}'}
                     # 3. Encontrar el archivo del mes
                     ruta_archivo_mensual = encontrar_archivo_del_mes(headers, site_id, RUTA_CARPETA_VENTAS_MENSUALES, status_placeholder)
-                    ruta_fija_trm = "01 Archivos Area Administrativa/TRM.xlsx"
+                    ruta_fija_trm = "01 Archivos Area Administrativa/TRM4.xlsx"
                     exito_trm = actualizar_archivo_trm(headers, site_id, ruta_fija_trm, df_result, status_placeholder)
                     #st.info("Archivo TRM actualizado con Éxito")
                     if ruta_archivo_mensual:
