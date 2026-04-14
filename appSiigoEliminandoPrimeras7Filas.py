@@ -1121,7 +1121,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 df_procesado['Número comprobante'] == 'FV-1',
                 df_procesado['Número comprobante'] == 'FV-2'
             ]
-                
+            
             # Definir los valores a asignar para cada condición
             choices = [
                 'FLE-' + df_procesado['Consecutivo'].astype('Int64').astype(str),
@@ -1167,7 +1167,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             
             # Para evitar problemas, nos aseguramos de que la columna 'Tasa de cambio' sea numérica desde el principio.
             # Usamos la limpieza simple de comas que ya definimos.
-            df_procesado['Tasa de cambio'] = convertir_a_numero_limpiando_comas(df_procesado['Tasa de cambio']).fillna(0.0).astype(float)
+            df_procesado['Tasa de cambio'] = convertir_a_numero_limpiando_comas(df_procesado['Tasa de cambio']).fillna(0)
 
             # 1. EXTRAER el valor de las observaciones como texto.
             trm_extraida = df_procesado['Observaciones'].astype(str).str.extract(r'\{(.*?)\}')[0]
@@ -1317,8 +1317,6 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         st.success("Columnas reorganizadas y limpiadas con éxito.")
  
         st.success("¡Procesamiento completado con éxito!")
-        
-        
         
         return df_procesado
 
