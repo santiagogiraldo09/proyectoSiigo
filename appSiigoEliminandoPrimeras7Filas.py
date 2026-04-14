@@ -1121,7 +1121,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 df_procesado['Número comprobante'] == 'FV-1',
                 df_procesado['Número comprobante'] == 'FV-2'
             ]
-            
+                
             # Definir los valores a asignar para cada condición
             choices = [
                 'FLE-' + df_procesado['Consecutivo'].astype('Int64').astype(str),
@@ -1163,36 +1163,41 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         #else:
             #st.warning("Advertencia: No se encontraron las columnas **'Tasa de cambio'** y/o **'Observaciones'**.")
         # 5. Extraer, LIMPIAR y sobrescribir 'Tasa de cambio' desde 'Observaciones' (LÓGICA CORREGIDA Y ENFOCADA)
+        # 5. Extraer, LIMPIAR y sobrescribir 'Tasa de cambio' desde 'Observaciones'
         if "Tasa de cambio" in df_procesado.columns and "Observaciones" in df_procesado.columns:
-            
-            # Para evitar problemas, nos aseguramos de que la columna 'Tasa de cambio' sea numérica desde el principio.
-            # Usamos la limpieza simple de comas que ya definimos.
-            df_procesado['Tasa de cambio'] = convertir_a_numero_limpiando_comas(df_procesado['Tasa de cambio']).fillna(0)
 
-            # 1. EXTRAER el valor de las observaciones como texto.
+            df_procesado['Tasa de cambio'] = convertir_a_numero_limpiando_comas(
+                df_procesado['Tasa de cambio']
+            ).fillna(0.0).astype(float)
+
+            # --- DEBUG: ver qué hay realmente en Observaciones ---
+            muestra_obs = df_procesado['Observaciones'].astype(str).head(10).tolist()
+            st.write("🔍 DEBUG - Muestra de Observaciones (primeras 10):", muestra_obs)
+            # ---------------------------------------------------
+
             trm_extraida = df_procesado['Observaciones'].astype(str).str.extract(r'\{(.*?)\}')[0]
-            
-            # Quitamos las filas donde no se encontró nada.
-            trm_extraida.dropna(inplace=True)
 
-            if not trm_extraida.empty:
-                st.info("Valores de TRM encontrados en 'Observaciones'. Limpiando y actualizando...")
+            # --- DEBUG: ver qué extrajo el regex ---
+            st.write("🔍 DEBUG - TRM extraída antes de dropna:", trm_extraida.value_counts(dropna=False).head(10))
+            # ---------------------------------------
 
-                # 2. LIMPIAR el texto extraído (quitamos comas de miles).
-                # Ejemplo: "4,061.36" se convierte en "4061.36"
-                trm_limpia = trm_extraida.str.replace(',', '', regex=False)
+            trm_extraida = trm_extraida.dropna()
 
-                # 3. CONVERTIR el texto limpio a un formato numérico.
-                trm_numerica = pd.to_numeric(trm_limpia, errors='coerce')
-                
-                # Quitamos las filas donde la conversión a número pudo haber fallado.
-                trm_numerica.dropna(inplace=True)
+            if trm_extraida.empty:
+                st.warning("⚠️ El regex NO encontró ningún valor entre {} en Observaciones. Revisa el formato real de la columna.")
+            else:
+                st.info(f"✅ Se encontraron {len(trm_extraida)} valores de TRM en Observaciones.")
+                trm_limpia = trm_extraida.str.replace(',', '', regex=False).str.strip()
+                trm_numerica = pd.to_numeric(trm_limpia, errors='coerce').dropna()
 
-                # 4. ACTUALIZAR la columna 'Tasa de cambio' con los valores ya numéricos y limpios.
-                # El método .update() alinea por índice y solo modifica donde encuentra correspondencia.
-                df_procesado['Tasa de cambio'].update(trm_numerica)
-                st.success(f"Se actualizaron **{len(trm_numerica)}** filas en 'Tasa de cambio' con valores numéricos limpios desde 'Observaciones'.")
+                st.write("🔍 DEBUG - Valores numéricos listos para escribir:", trm_numerica.head(10).tolist())
 
+                # FIX: usar .loc en vez de .update() para garantizar escritura al DataFrame
+                df_procesado.loc[trm_numerica.index, 'Tasa de cambio'] = trm_numerica
+
+                # Verificación inmediata
+                valores_escritos = df_procesado.loc[trm_numerica.index, 'Tasa de cambio']
+                st.success(f"✅ Escritura verificada. Ejemplo: {valores_escritos.head(3).tolist()}")
 
         # 5.1. Calcular la nueva columna 'Valor Total ME' (VERSIÓN CORREGIDA FINAL)
         st.info("Calculando 'Valor Total ME'...")
@@ -1317,6 +1322,52 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         st.success("Columnas reorganizadas y limpiadas con éxito.")
  
         st.success("¡Procesamiento completado con éxito!")
+        
+        # --- SEGUNDA VERIFICACIÓN DE DUPLICADOS (Interna del DataFrame) ---
+        st.info("Ejecutando segunda verificación de duplicados internos...")
+        
+        # Definimos las columnas que identifican un registro único según tu regla
+        columnas_unicas = [
+            'REL_Factura proveedor', 
+            'Código', 
+            'REL_Nombre tercero', 
+            'Nombre tercero', 
+            'Identificación', 
+            'Fecha elaboración'
+        ]
+        
+        # Verificamos cuáles de estas columnas existen realmente en el DF para evitar errores
+        cols_presentes = [c for c in columnas_unicas if c in df_procesado.columns]
+        
+        filas_antes_segunda_limpieza = len(df_procesado)
+        
+        # Eliminamos duplicados dejando solo la primera aparición
+        df_procesado = df_procesado.drop_duplicates(subset=cols_presentes, keep='first')
+        
+        filas_despues_segunda_limpieza = len(df_procesado)
+        duplicados_internos = filas_antes_segunda_limpieza - filas_despues_segunda_limpieza
+        
+        if duplicados_internos > 0:
+            st.warning(f"✅ Se eliminaron {duplicados_internos} registros duplicados encontrados dentro del mismo proceso.")
+        else:
+            st.success("✅ No se encontraron duplicados internos en esta ejecución.")
+        # -----------------------------------------------------------------
+        
+        
+        # --- PASO: ACTUALIZACIÓN DE CANTIDAD DE VENTA (REL_Cantidad) ---
+        st.info("Revisando registros con misma Descripción y Cantidad de Venta...")
+        
+        if 'Nombre' in df_procesado.columns and 'REL_Cantidad' in df_procesado.columns and 'Cantidad' in df_procesado.columns:
+            
+            # 1. Detectar qué combinaciones de (Nombre, REL_Cantidad) aparecen más de una vez
+            conteo = df_procesado.groupby(['Nombre', 'Cantidad'])['Nombre'].transform('count')
+            mask_repetidos = conteo > 1
+            
+            if mask_repetidos.any():
+                df_procesado.loc[mask_repetidos, 'Cantidad'] = df_procesado.loc[mask_repetidos, 'REL_Cantidad']
+                st.success(f"✅ Se actualizó 'REL_Cantidad' con el valor de 'Cantidad' en {mask_repetidos.sum()} registros.")
+            else:
+                st.info("No se encontraron registros repetidos en Descripción + Cantidad.")
         
         return df_procesado
 
