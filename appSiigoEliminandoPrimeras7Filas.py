@@ -1355,19 +1355,19 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         
         
         # --- PASO: ACTUALIZACIÓN DE CANTIDAD DE VENTA (REL_Cantidad) ---
-        st.info("Revisando registros con misma Descripción y Cantidad de Venta...")
+        #st.info("Revisando registros con misma Descripción y Cantidad de Venta...")
         
-        if 'Nombre' in df_procesado.columns and 'REL_Cantidad' in df_procesado.columns and 'Cantidad' in df_procesado.columns:
+        #if 'Nombre' in df_procesado.columns and 'REL_Cantidad' in df_procesado.columns and 'Cantidad' in df_procesado.columns:
             
             # 1. Detectar qué combinaciones de (Nombre, REL_Cantidad) aparecen más de una vez
-            conteo = df_procesado.groupby(['Nombre', 'Cantidad'])['Nombre'].transform('count')
-            mask_repetidos = conteo > 1
+            #conteo = df_procesado.groupby(['Nombre', 'Cantidad'])['Nombre'].transform('count')
+            #mask_repetidos = conteo > 1
             
-            if mask_repetidos.any():
-                df_procesado.loc[mask_repetidos, 'Cantidad'] = df_procesado.loc[mask_repetidos, 'REL_Cantidad']
-                st.success(f"✅ Se actualizó 'REL_Cantidad' con el valor de 'Cantidad' en {mask_repetidos.sum()} registros.")
-            else:
-                st.info("No se encontraron registros repetidos en Descripción + Cantidad.")
+            #if mask_repetidos.any():
+                #df_procesado.loc[mask_repetidos, 'Cantidad'] = df_procesado.loc[mask_repetidos, 'REL_Cantidad']
+                #st.success(f"✅ Se actualizó 'REL_Cantidad' con el valor de 'Cantidad' en {mask_repetidos.sum()} registros.")
+            #else:
+                #st.info("No se encontraron registros repetidos en Descripción + Cantidad.")
         
         return df_procesado
 
