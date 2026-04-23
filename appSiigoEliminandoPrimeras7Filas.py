@@ -1405,6 +1405,8 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                     .unique()
                     .reset_index()
                 )
+                # Convertir el array de comprobantes a string para que Streamlit pueda renderizarlo
+                grupos_afectados[col_diferente] = grupos_afectados[col_diferente].apply(lambda x: ', '.join(x))
                 st.write(f"🔍 Grupos con duplicados encontrados: {len(grupos_afectados)}. Muestra:")
                 st.dataframe(grupos_afectados.head(10))
 
