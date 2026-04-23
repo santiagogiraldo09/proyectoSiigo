@@ -1360,7 +1360,7 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         if 'Nombre' in df_procesado.columns and 'REL_Cantidad' in df_procesado.columns and 'Cantidad' in df_procesado.columns:
             
             # 1. Detectar qué combinaciones de (Nombre, REL_Cantidad) aparecen más de una vez
-            onteo = df_procesado.groupby(['Nombre', 'Cantidad'])['Nombre'].transform('count')
+            conteo = df_procesado.groupby(['Nombre', 'Cantidad'])['Nombre'].transform('count')
             mask_repetidos = conteo > 1
             
             if mask_repetidos.any():
@@ -1368,6 +1368,54 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 st.success(f"✅ Se actualizó 'REL_Cantidad' con el valor de 'Cantidad' en {mask_repetidos.sum()} registros.")
             else:
                 st.info("No se encontraron registros repetidos en Descripción + Cantidad.")
+        
+        # --- TERCERA VERIFICACIÓN: Duplicados por regla de negocio ---
+        st.info("Ejecutando verificación de duplicados por regla de negocio...")
+
+        cols_agrupacion = [
+            'Código',
+            'Nombre',
+            'Identificación',
+            'Nombre tercero',
+            'Cantidad',
+            'REL_Consecutivo',
+            'REL_Factura proveedor',
+            'REL_Cantidad'
+        ]
+        col_diferente = 'Numero comprobante'
+
+        cols_requeridas = cols_agrupacion + [col_diferente]
+        cols_faltantes = [c for c in cols_requeridas if c not in df_procesado.columns]
+
+        if cols_faltantes:
+            st.warning(f"⚠️ No se pudo ejecutar la verificación de negocio. Columnas faltantes: {', '.join(cols_faltantes)}")
+        else:
+            filas_antes_negocio = len(df_procesado)
+
+            # Identificar grupos donde las cols de igualdad coinciden
+            # pero Numero comprobante es diferente entre registros del mismo grupo
+            num_comprobantes_por_grupo = df_procesado.groupby(cols_agrupacion)[col_diferente].transform('nunique')
+            mask_grupos_duplicados = num_comprobantes_por_grupo > 1
+
+            if mask_grupos_duplicados.any():
+                # Mostrar diagnóstico de los grupos encontrados
+                grupos_afectados = (
+                    df_procesado[mask_grupos_duplicados]
+                    .groupby(cols_agrupacion)[col_diferente]
+                    .unique()
+                    .reset_index()
+                )
+                st.write(f"🔍 Grupos con duplicados encontrados: {len(grupos_afectados)}. Muestra:")
+                st.dataframe(grupos_afectados.head(10))
+
+                # Conservar solo el primer registro por grupo
+                df_procesado = df_procesado.drop_duplicates(subset=cols_agrupacion, keep='first')
+
+                filas_despues_negocio = len(df_procesado)
+                eliminados_negocio = filas_antes_negocio - filas_despues_negocio
+                st.warning(f"✅ Se eliminaron {eliminados_negocio} registros duplicados por regla de negocio (mismo producto/cliente, distinto Num Comprobante).")
+            else:
+                st.success("✅ No se encontraron duplicados por regla de negocio.")
         
         return df_procesado
 
