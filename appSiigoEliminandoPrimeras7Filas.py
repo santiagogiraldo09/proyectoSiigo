@@ -1365,7 +1365,9 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             mask_repetidos = conteo > 1
             
             if mask_repetidos.any():
-                df_procesado.loc[mask_repetidos, 'Cantidad'] = df_procesado.loc[mask_repetidos, 'REL_Cantidad']
+                #df_procesado.loc[mask_repetidos, 'Cantidad'] = df_procesado.loc[mask_repetidos, 'REL_Cantidad']
+                mask_con_valor = mask_repetidos & df_procesado['REL_Cantidad'].notna() & (df_procesado['REL_Cantidad'] != '')
+                df_procesado.loc[mask_con_valor, 'Cantidad'] = df_procesado.loc[mask_con_valor, 'REL_Cantidad']
                 st.success(f"✅ Se actualizó 'REL_Cantidad' con el valor de 'Cantidad' en {mask_repetidos.sum()} registros.")
             else:
                 st.info("No se encontraron registros repetidos en Descripción + Cantidad.")
