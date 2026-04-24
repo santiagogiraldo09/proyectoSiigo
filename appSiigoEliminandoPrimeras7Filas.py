@@ -1269,7 +1269,8 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
                 'Servicio': 'S',
                 'Producto': 'P'
             }
-            df_procesado['Tipo Bien'].replace(mapeo_valores, inplace=True)
+            #df_procesado['Tipo Bien'].replace(mapeo_valores, inplace=True)
+            df_procesado['Tipo Bien'] = df_procesado['Tipo Bien'].replace(mapeo_valores)
             st.info("Valores en 'Tipo Bien' actualizados: 'Servicio' a 'S' y 'Producto' a 'P'.")
         
         #Creación de la nueva columna "Vendedor"
