@@ -354,21 +354,39 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         # ==============================================================================
         status_placeholder.info("6/7 - Agregando fórmulas a las nuevas filas...")
 
-        col_comercial_idx = 4
-        col_vendedor_idx = 18
-        
         num_nuevas_filas = len(lista_nuevas_filas_final)
         primera_fila_nueva = hoja.max_row - num_nuevas_filas + 1
-        
+
+        # --- 1. COLUMNA D: NOMBRE COMERCIAL ---
+        col_comercial_idx = 4
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
+            # Busca la Cédula de la columna R en pestaña 'vendedor' columnas B:C
             celda_comercial.value = f'=IFERROR(VLOOKUP(R{r_idx},vendedor!$B:$C,2,FALSE),"")'
         
-        status_placeholder.info(f"✅ Fórmula agregada a columna D en {num_nuevas_filas} nuevas filas")
+        status_placeholder.info(f"✅ Fórmula agregada a columna D (Comercial) en {num_nuevas_filas} nuevas filas")
 
+        # --- 2. COLUMNA H: DESCRIPCIÓN LÍNEA ---
+        col_desc_linea_idx = 8  # Columna H
+        for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
+            celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
+            # Busca el código de la columna G en la pestaña 'lineas' columnas B:C
+            celda_desc_linea.value = f'=IFERROR(VLOOKUP(G{r_idx},lineas!$B:$C,2,FALSE),"")'
+
+        status_placeholder.info(f"✅ Fórmula agregada a columna H (Descripción Línea) en {num_nuevas_filas} nuevas filas")
+
+        # --- 3. COLUMNA J: DESCRIPCIÓN SUBLÍNEA ---
+        col_desc_sublinea_idx = 10  # Columna J
+        for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
+            celda_desc_sublinea = hoja.cell(row=r_idx, column=col_desc_sublinea_idx)
+            # Busca el código de la columna I en la pestaña 'Sublineas' columnas B:D
+            celda_desc_sublinea.value = f'=IFERROR(VLOOKUP(I{r_idx},Sublineas!$B:$D,3,FALSE),"")'
+
+        status_placeholder.info(f"✅ Fórmula agregada a columna J (Descripción Sublínea) en {num_nuevas_filas} nuevas filas")
+
+        # --- 4. COLUMNAS AJ Y AK: CÁLCULOS MATEMÁTICOS ---
         col_aj_idx = 36
         col_ak_idx = 37
-        
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_aj = hoja.cell(row=r_idx, column=col_aj_idx)
             celda_aj.value = f'=IFERROR(1-(AH{r_idx}/W{r_idx}),0)'
