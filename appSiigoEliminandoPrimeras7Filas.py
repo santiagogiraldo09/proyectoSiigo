@@ -1276,6 +1276,10 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
         else:
             st.warning("No se encontraron documentos DS-1 o FC-1 para relacionar. El archivo final no tendrá columnas de relación.")
         
+        if 'REL_Clasificación Producto' in df_procesado.columns:
+            df_procesado['Clasificación Producto'] = df_procesado['REL_Clasificación Producto'].fillna('')
+            st.info(f"✅ Clasificación Producto trasladada: {df_procesado['Clasificación Producto'].ne('').sum()} filas con valor.")
+
         # 7. Organizar y Limpiar Columnas Finales
         st.info("Organizando el formato final del archivo...")
         
