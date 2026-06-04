@@ -371,7 +371,9 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
             # Busca el código de la columna G en la pestaña 'lineas' columnas B:C
-            celda_desc_linea.value = f'=IFERROR(VLOOKUP(VALUE(G{r_idx}),lineas!$B:$C,2,FALSE),"")'
+            # PROTECCIÓN: Si G está vacío, pone vacío "". Si no, hace el VALUE y el VLOOKUP
+            celda_desc_linea.value = f'=IF(G{r_idx}="","",IFERROR(VLOOKUP(VALUE(G{r_idx}),lineas!$B:$C,2,FALSE),""))'
+            #celda_desc_linea.value = f'=IFERROR(VLOOKUP(VALUE(G{r_idx}),lineas!$B:$C,2,FALSE),"")'
 
         status_placeholder.info(f"✅ Fórmula agregada a columna H (Descripción Línea) en {num_nuevas_filas} nuevas filas")
 
@@ -380,7 +382,9 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_desc_sublinea = hoja.cell(row=r_idx, column=col_desc_sublinea_idx)
             # Busca el código de la columna I en la pestaña 'Sublineas' columnas B:D
-            celda_desc_sublinea.value = f'=IFERROR(VLOOKUP(I{r_idx},Sublineas!$B:$D,3,FALSE),"")'
+            # PROTECCIÓN: Si I está vacío, pone vacío "". Si no, hace el VLOOKUP normal
+            celda_desc_sublinea.value = f'=IF(I{r_idx}="","",IFERROR(VLOOKUP(I{r_idx},Sublineas!$B:$D,3,FALSE),""))'
+            #celda_desc_sublinea.value = f'=IFERROR(VLOOKUP(I{r_idx},Sublineas!$B:$D,3,FALSE),"")'
 
         status_placeholder.info(f"✅ Fórmula agregada a columna J (Descripción Sublínea) en {num_nuevas_filas} nuevas filas")
 
