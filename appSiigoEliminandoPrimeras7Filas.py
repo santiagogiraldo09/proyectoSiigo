@@ -1302,8 +1302,8 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             df_procesado.drop(columns=['Identificación Vendedor'], inplace=True)
             
         #Creación de la nueva columna "Clasificación Producto"
-        if 'Clasificación Producto' not in df_procesado.columns:
-            df_procesado['Clasificación Producto'] = ''
+        #if 'Clasificación Producto' not in df_procesado.columns:
+            #df_procesado['Clasificación Producto'] = ''
             
         #Creación de la nueva columna "Línea"
         if 'Línea' not in df_procesado.columns:
