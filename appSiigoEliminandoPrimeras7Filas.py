@@ -362,7 +362,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_comercial = hoja.cell(row=r_idx, column=col_comercial_idx)
             # Busca la Cédula de la columna R en pestaña 'vendedor' columnas B:C
-            celda_comercial.value = f'=IFERROR(VLOOKUP(R{r_idx},vendedor!$B:$C,2,FALSE),"")'
+            celda_comercial.value = f'=IFERROR(VLOOKUP(VALUE(R{r_idx}),vendedor!$B:$C,2,FALSE),"")'
         
         status_placeholder.info(f"✅ Fórmula agregada a columna D (Comercial) en {num_nuevas_filas} nuevas filas")
 
@@ -371,7 +371,7 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         for r_idx in range(primera_fila_nueva, hoja.max_row + 1):
             celda_desc_linea = hoja.cell(row=r_idx, column=col_desc_linea_idx)
             # Busca el código de la columna G en la pestaña 'lineas' columnas B:C
-            celda_desc_linea.value = f'=IFERROR(VLOOKUP(G{r_idx},lineas!$B:$C,2,FALSE),"")'
+            celda_desc_linea.value = f'=IFERROR(VLOOKUP(VALUE(G{r_idx}),lineas!$B:$C,2,FALSE),"")'
 
         status_placeholder.info(f"✅ Fórmula agregada a columna H (Descripción Línea) en {num_nuevas_filas} nuevas filas")
 
