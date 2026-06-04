@@ -99,6 +99,22 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
         status_placeholder.info(f"Usando fecha: Año {anio}, Mes {mes}")
 
         nuevas_filas_list_of_dicts = []
+
+        # ─── DIAGNÓSTICO DE MAPEO ───────────────────────────────────────────
+        st.write("### 🗺️ MAPEO COLUMNAS df_result → TRM")
+        mapeo_debug = []
+        for i, col_origen in enumerate(df_datos_procesados.columns):
+            col_idx_destino = i + 4
+            col_destino = columnas_destino[col_idx_destino] if col_idx_destino < len(columnas_destino) else "⚠️ FUERA DE RANGO"
+            mapeo_debug.append({
+                "i": i,
+                "Col df_result": col_origen,
+                "→ Col TRM (idx)": col_idx_destino,
+                "→ Col TRM (nombre)": col_destino
+            })
+        st.dataframe(pd.DataFrame(mapeo_debug))
+        # ────────────────────────────────────────────────────────────────────
+
         for index, fila_procesada in df_datos_procesados.iterrows():
             nueva_fila_dict = {col: "" for col in columnas_destino}
             
@@ -106,10 +122,15 @@ def actualizar_archivo_trm(headers, site_id, ruta_archivo_trm, df_datos_procesad
             if len(columnas_destino) > 1: nueva_fila_dict[columnas_destino[1]] = mes
             if len(columnas_destino) > 2: nueva_fila_dict[columnas_destino[2]] = "Colombia"
             
-            for i, valor in enumerate(fila_procesada.values):
-                col_index_destino = i + 4 
-                if col_index_destino < num_encabezados:
-                    nueva_fila_dict[columnas_destino[col_index_destino]] = valor
+            
+            #for i, valor in enumerate(fila_procesada.values):
+                #col_index_destino = i + 4 
+                #if col_index_destino < num_encabezados:
+                    #nueva_fila_dict[columnas_destino[col_index_destino]] = valor
+                    
+            for col_origen, valor in zip(df_datos_procesados.columns, fila_procesada.values):
+                if col_origen in nueva_fila_dict:
+                    nueva_fila_dict[col_origen] = valor
             
             nuevas_filas_list_of_dicts.append(nueva_fila_dict)
 
