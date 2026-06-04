@@ -1091,9 +1091,8 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
             
             # Extraer contenido entre comillas dobles
-            #df_procesado['Clasificación Producto'] = df_procesado['Observaciones'].str.extract(r'"([^"]+)"', expand=False)
-            df_procesado['Clasificación Producto'] = df_procesado['Observaciones'].str.extract(r'["\u201c]([^"\u201c\u201d]+)["\u201d]', expand=False)
-
+            df_procesado['Clasificación Producto'] = df_procesado['Observaciones'].str.extract(r'"([^"]+)"', expand=False)
+            
             # Reemplazar NaN con string vacío
             df_procesado['Clasificación Producto'].fillna('', inplace=True)
             
