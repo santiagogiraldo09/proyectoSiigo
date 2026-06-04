@@ -1090,14 +1090,15 @@ def procesar_excel_para_streamlit(uploaded_file, status_placeholder):
             
             df_procesado['Observaciones'] = df_procesado['Observaciones'].astype(str)
             
-            # Extraer contenido entre comillas dobles
-            df_procesado['Clasificación Producto'] = df_procesado['Observaciones'].str.extract(r'"([^"]+)"', expand=False)
+            # CORRECCIÓN: La nueva expresión regular acepta comillas rectas (") y comillas curvas (“ y ”)
+            df_procesado['Clasificación Producto'] = df_procesado['Observaciones'].str.extract(r'["“”]([^"“”]+)["“”]', expand=False)
             
-            # Reemplazar NaN con string vacío
-            df_procesado['Clasificación Producto'].fillna('', inplace=True)
+            # Reemplazar NaN con string vacío (Forma correcta sin inplace=True para evitar el FutureWarning)
+            df_procesado['Clasificación Producto'] = df_procesado['Clasificación Producto'].fillna('')
             
             clasificaciones_encontradas = df_procesado['Clasificación Producto'].ne('').sum()
             st.success(f"Clasificaciones de producto extraídas: {clasificaciones_encontradas}")
+            
         else:
             st.warning("No se encontró la columna 'Observaciones'.")
             df_procesado['Clasificación Producto'] = ''
